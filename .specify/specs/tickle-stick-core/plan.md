@@ -2,9 +2,10 @@
 
 ## Overview
 
-Tickle-stick is a TypeScript library that exports an OpenClaw plugin. The plugin
-hooks into `dispatchInboundMessage` and runs each message through a sequential
-4-tier pipeline. The first tier to return a definitive result wins.
+Tickle-stick is a TypeScript library that exports an interceptor pipeline designed
+for OpenClaw but compatible with any agentic framework. The host hooks it into
+its inbound message flow and runs each message through a sequential 4-tier
+pipeline. The first tier to return a definitive result wins.
 
 ## Architecture
 
@@ -30,7 +31,7 @@ InboundMessage
   └────┬────┘
        │ "human" (from Tier 1)
   ┌────▼────┐
-  │ Tier 3  │    Route to human: webhook/email/Slack
+  │ Tier 3  │    Return decision → host dispatches (email/Slack/webhook)
   └─────────┘
 ```
 
@@ -109,31 +110,21 @@ tickleStick:
         response: "You've been unsubscribed."
 
   tier1:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
     systemPrompt: |
       Classify this message. Respond with JSON:
       {"action": "deflect"|"escalate"|"human", "response": "...", "confidence": 0.0-1.0}
     confidenceThreshold: 0.7
     timeout: 5000
 
-  tier3:
-    routes:
-      - channel: webhook
-        url: "${ESCALATION_WEBHOOK_URL}"
-      - channel: email
-        to: "team@example.com"
+  # Tier 3 is decision-only — no config needed.
+  # The host reads action: "human" from TierResult and dispatches
+  # via its own email/Slack/webhook infrastructure.
 
   telemetry:
     enabled: true
     format: json
     includeMessagePreview: false
 
-  providers:
-    anthropic:
-      apiKey: "${ANTHROPIC_API_KEY}"
-    openai:
-      apiKey: "${OPENAI_API_KEY}"
 ```
 
 ## Module Responsibilities
@@ -144,20 +135,19 @@ tickleStick:
 | `tiers/tier0-deterministic.ts` | Pattern matching against config rules                       |
 | `tiers/tier1-triage.ts`        | Provider call, decision parsing, confidence check           |
 | `tiers/tier2-passthrough.ts`   | No-op return signaling host should proceed                  |
-| `tiers/tier3-human.ts`         | Webhook/email/Slack dispatch                                |
+| `tiers/tier3-human.ts`         | Returns human escalation decision (host dispatches)         |
 | `config/schema.ts`             | Zod schema definition                                       |
 | `config/loader.ts`             | YAML parse, env var interpolation, validation               |
 | `config/defaults.ts`           | Sensible default config for quick start                     |
-| `providers/provider.ts`        | TriageProvider interface                                    |
-| `providers/anthropic.ts`       | Anthropic Haiku implementation                              |
-| `providers/openai.ts`          | OpenAI implementation                                       |
+| `providers/provider.ts`        | TriageProvider interface re-exports                         |
+| `providers/parse.ts`           | Shared `parseTriageResponse` utility                        |
 | `telemetry/logger.ts`          | Structured tier decision logging                            |
 | `telemetry/metrics.ts`         | Cost tracking, tier distribution stats                      |
-| `index.ts`                     | OpenClaw plugin export                                      |
+| `index.ts`                     | Library entry point — barrel exports                        |
 
 ## Error Handling
 
 - Tier 0: errors → skip to Tier 1 (pattern errors are config bugs, not runtime)
 - Tier 1: provider timeout/error → fall through to Tier 2 (fail open)
-- Tier 3: webhook failure → log error, do not retry (fire-and-forget)
+- Tier 3: pure decision, no I/O — cannot fail
 - Config: validation errors → throw at startup (fail fast)

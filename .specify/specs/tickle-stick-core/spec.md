@@ -2,7 +2,7 @@
 
 ## User Story
 
-As an engineer running an agentic workflow (e.g., OpenClaw), I want to
+As an engineer running an agentic workflow such as OpenClaw, I want to
 automatically triage inbound messages through a cost hierarchy so that simple
 messages are handled cheaply and only complex messages trigger expensive agent
 loops.
@@ -39,15 +39,17 @@ fallback. Tier 3 is triggered by Tier 1 returning "human".
 - Tier 0: regex, keyword, slash-command matching with configurable patterns
 - Tier 1: cheap model triage with provider abstraction
 - Tier 2: passthrough (no-op, returns control to host)
-- Tier 3: human escalation routing (webhook, email, Slack)
+- Tier 3: human escalation decision (host handles actual dispatch)
 - YAML-based configuration with Zod validation
 - Env var interpolation in config
-- Provider interface + Anthropic (Haiku) and OpenAI providers
+- Provider interface (`TriageProvider`) — host injects concrete providers
 - Structured telemetry logging (tier, latency, cost, outcome)
-- OpenClaw plugin entry point
+- `parseTriageResponse` utility for hosts building providers
 
 ### Out of scope (v1)
 
+- Concrete model providers (Anthropic, OpenAI, etc.) — host responsibility
+- Host-specific plugin entry points — glue code lives in the host (e.g., OpenClaw plugin adapter), not in this library
 - Web dashboard for telemetry
 - Multi-step triage (Tier 1 calling Tier 1 again)
 - Message transformation / rewriting between tiers
@@ -60,12 +62,11 @@ Ship if:
 
 - All 4 tiers work end-to-end with tests passing
 - Config loads from YAML with validation
-- At least 2 providers (Anthropic + OpenAI) work
+- `TriageProvider` interface is clean enough that a host can implement it in <20 lines
 - Telemetry logs tier decisions with cost estimates
 - README tells the story in <60 seconds
 
 Kill if:
 
-- OpenClaw plugin API changes make the hook point impossible
 - Cost savings are <50% in realistic email triage scenarios
 - No external interest after 2 weeks of launch effort
