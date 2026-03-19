@@ -1,0 +1,58 @@
+tickleStick:
+  tier0:
+    patterns:
+      - match: "^(hi|hello|hey|howdy)\\b"
+        type: regex
+        flags: "i"
+        action: deflect
+        response: "Hello! How can I help you today?"
+
+      - match: "/help"
+        type: command
+        action: deflect
+        response: |
+          Available commands: /help, /status, /escalate
+
+          For complex questions, just ask — your message will be routed to the right place.
+
+      - match: "/status"
+        type: command
+        action: deflect
+        response: "All systems operational."
+
+    keywords:
+      - match: ["unsubscribe", "stop emails", "remove me"]
+        action: deflect
+        response: "Your request has been noted. You will be removed from future communications."
+
+  tier1:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    systemPrompt: |
+      You are a message triage classifier. Analyze the incoming message and classify it.
+
+      Respond with ONLY a JSON object (no markdown, no explanation):
+      {"action": "deflect"|"escalate"|"human", "response": "...", "confidence": 0.0-1.0}
+
+      Rules:
+      - "deflect": Simple questions you can answer directly. Provide a helpful response.
+      - "escalate": Complex, ambiguous, or technical messages that need a full agent.
+      - "human": Sales inquiries, partnerships, complaints, or anything needing a human touch.
+
+      Keep deflect responses concise (1-3 sentences).
+    confidenceThreshold: 0.7
+    timeout: 5000
+
+  tier3:
+    routes:
+      - channel: webhook
+        url: "${ESCALATION_WEBHOOK_URL}"
+
+  telemetry:
+    enabled: true
+    format: json
+    includeMessagePreview: false
+
+  providers:
+    anthropic:
+      apiKey: "${ANTHROPIC_API_KEY}"

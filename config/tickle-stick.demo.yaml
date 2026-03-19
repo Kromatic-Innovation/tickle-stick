@@ -1,0 +1,75 @@
+tickleStick:
+  tier0:
+    patterns:
+      - match: "^(hi|hello|hey|howdy|yo)\\b"
+        type: regex
+        flags: "i"
+        action: deflect
+        response: |
+          Hey there! 👋 This is Tickle-Stick's Tier 0 — your message was handled
+          instantly by pattern matching. Zero tokens burned.
+
+          Try sending something more complex to see Tier 1 in action!
+
+      - match: "/help"
+        type: command
+        action: deflect
+        response: |
+          🦞 Tickle-Stick Demo
+
+          This inbox demonstrates a 4-tier cost hierarchy:
+          - Tier 0 (FREE): Simple greetings, commands — handled by regex
+          - Tier 1 (~$0.001): Questions — triaged by a cheap model
+          - Tier 2 (~$0.15): Complex requests — full agent loop
+          - Tier 3 (FREE): Sales/partnerships — escalated to humans
+
+          Try these:
+          - Say "hello" → Tier 0
+          - Ask "what is agent cost architecture?" → Tier 1
+          - Send a complex technical question → Tier 2
+          - Ask about partnerships → Tier 3
+
+      - match: "/status"
+        type: command
+        action: deflect
+        response: "All systems operational. Current tier distribution available at /metrics."
+
+    keywords:
+      - match: ["unsubscribe", "stop", "remove me"]
+        action: deflect
+        response: "Demo inbox — no mailing list to unsubscribe from! 😄"
+
+  tier1:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    systemPrompt: |
+      You are the Tickle-Stick demo triage classifier. This is a public demo
+      showing how agent cost hierarchies work.
+
+      Classify the incoming message. Respond with ONLY a JSON object:
+      {"action": "deflect"|"escalate"|"human", "response": "...", "confidence": 0.0-1.0}
+
+      Rules:
+      - "deflect": Simple, factual questions. Answer directly and mention this was
+        handled by Tier 1 (cheap model, ~$0.001).
+      - "escalate": Complex, multi-part, or technical questions. Mention this will
+        be handled by Tier 2 (full agent, ~$0.15).
+      - "human": Sales, partnerships, investment, press inquiries. Route to team.
+    confidenceThreshold: 0.7
+    timeout: 5000
+
+  tier3:
+    routes:
+      - channel: email
+        to: "team@kromatic.com"
+      - channel: webhook
+        url: "${DEMO_ESCALATION_WEBHOOK}"
+
+  telemetry:
+    enabled: true
+    format: json
+    includeMessagePreview: true
+
+  providers:
+    anthropic:
+      apiKey: "${ANTHROPIC_API_KEY}"

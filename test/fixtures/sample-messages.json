@@ -1,0 +1,71 @@
+[
+  {
+    "id": "msg-001",
+    "channel": "email",
+    "from": "alice@example.com",
+    "subject": "Hello!",
+    "body": "Hi there!",
+    "timestamp": "2026-03-19T10:00:00Z",
+    "expectedTier": 0,
+    "expectedAction": "deflect"
+  },
+  {
+    "id": "msg-002",
+    "channel": "email",
+    "from": "bob@example.com",
+    "subject": "Help needed",
+    "body": "/help",
+    "timestamp": "2026-03-19T10:01:00Z",
+    "expectedTier": 0,
+    "expectedAction": "deflect"
+  },
+  {
+    "id": "msg-003",
+    "channel": "email",
+    "from": "charlie@example.com",
+    "subject": "Remove me",
+    "body": "Please unsubscribe me from your mailing list",
+    "timestamp": "2026-03-19T10:02:00Z",
+    "expectedTier": 0,
+    "expectedAction": "deflect"
+  },
+  {
+    "id": "msg-004",
+    "channel": "email",
+    "from": "diana@example.com",
+    "subject": "API Integration",
+    "body": "We're building a multi-tenant SaaS platform and need to integrate your agent framework with our existing event-driven microservices architecture. Can you help us design the message routing layer?",
+    "timestamp": "2026-03-19T10:03:00Z",
+    "expectedTier": 2,
+    "expectedAction": "passthrough"
+  },
+  {
+    "id": "msg-005",
+    "channel": "email",
+    "from": "eve@corp.com",
+    "subject": "Partnership Opportunity",
+    "body": "Hi, I'm the VP of Engineering at Corp Inc. We'd love to explore a strategic partnership around your agent cost optimization tooling. Can we schedule a call?",
+    "timestamp": "2026-03-19T10:04:00Z",
+    "expectedTier": 3,
+    "expectedAction": "human"
+  },
+  {
+    "id": "msg-006",
+    "channel": "slack",
+    "from": "frank",
+    "body": "Hey",
+    "timestamp": "2026-03-19T10:05:00Z",
+    "expectedTier": 0,
+    "expectedAction": "deflect"
+  },
+  {
+    "id": "msg-007",
+    "channel": "email",
+    "from": "grace@example.com",
+    "subject": "Quick question",
+    "body": "What time zone are your support hours in?",
+    "timestamp": "2026-03-19T10:06:00Z",
+    "expectedTier": 1,
+    "expectedAction": "deflect"
+  }
+]
