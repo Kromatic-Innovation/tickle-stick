@@ -36,39 +36,25 @@ describe("Config Schema", () => {
           ],
         },
         tier1: {
-          provider: "anthropic",
-          model: "claude-haiku-4-5-20251001",
           systemPrompt: "Classify this.",
           confidenceThreshold: 0.8,
           timeout: 3000,
-        },
-        tier3: {
-          routes: [
-            { channel: "webhook", url: "https://example.com/hook" },
-            { channel: "email", to: "team@example.com" },
-          ],
         },
         telemetry: {
           enabled: true,
           format: "json",
           includeMessagePreview: true,
         },
-        providers: {
-          anthropic: { apiKey: "sk-test" },
-        },
       },
     });
 
     expect(result.tickleStick.tier1!.confidenceThreshold).toBe(0.8);
-    expect(result.tickleStick.tier3.routes).toHaveLength(2);
   });
 
   it("applies defaults for optional fields", () => {
     const result = tickleStickConfigSchema.parse({
       tickleStick: {
         tier1: {
-          provider: "openai",
-          model: "gpt-4.1-nano",
           systemPrompt: "Test",
         },
       },
@@ -103,8 +89,6 @@ describe("Config Schema", () => {
       tickleStickConfigSchema.parse({
         tickleStick: {
           tier1: {
-            provider: "test",
-            model: "test",
             systemPrompt: "test",
             confidenceThreshold: 1.5, // Must be 0-1
           },
@@ -140,17 +124,20 @@ tickleStick:
   });
 
   it("interpolates environment variables", () => {
-    process.env.TEST_API_KEY = "sk-secret-123";
+    process.env.TEST_GREETING = "Welcome aboard!";
 
     const yaml = `
 tickleStick:
-  providers:
-    anthropic:
-      apiKey: "\${TEST_API_KEY}"
+  tier0:
+    patterns:
+      - match: "^hi$"
+        type: regex
+        action: deflect
+        response: "\${TEST_GREETING}"
 `;
     const config = loadConfigFromString(yaml);
-    expect(config.tickleStick.providers.anthropic!.apiKey).toBe(
-      "sk-secret-123",
+    expect(config.tickleStick.tier0.patterns[0].response).toBe(
+      "Welcome aboard!",
     );
   });
 
@@ -159,12 +146,15 @@ tickleStick:
 
     const yaml = `
 tickleStick:
-  providers:
-    anthropic:
-      apiKey: "\${NONEXISTENT_VAR}"
+  tier0:
+    patterns:
+      - match: "^test$"
+        type: regex
+        action: deflect
+        response: "\${NONEXISTENT_VAR}"
 `;
     const config = loadConfigFromString(yaml);
-    expect(config.tickleStick.providers.anthropic!.apiKey).toBe("");
+    expect(config.tickleStick.tier0.patterns[0].response).toBe("");
   });
 });
 

@@ -14,8 +14,6 @@ function makeMessage(body: string): InboundMessage {
 }
 
 const tier1Config: Tier1Config = {
-  provider: "mock",
-  model: "test-model",
   systemPrompt: "Classify this message.",
   confidenceThreshold: 0.7,
   timeout: 5000,

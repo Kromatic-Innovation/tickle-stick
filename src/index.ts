@@ -6,12 +6,9 @@ export type {
   TickleStickConfig,
   Tier0Config,
   Tier1Config,
-  Tier3Config,
   TelemetryConfig,
   PatternRule,
   KeywordGroup,
-  EscalationRoute,
-  ProviderConfig,
 } from "./config/schema.js";
 export type {
   InboundMessage,
@@ -20,8 +17,7 @@ export type {
   TriageDecision,
   TriageProvider,
 } from "./types.js";
-export { AnthropicTriageProvider } from "./providers/anthropic.js";
-export { OpenAITriageProvider } from "./providers/openai.js";
+export { parseTriageResponse } from "./providers/parse.js";
 export { MetricsCollector, type TierMetrics } from "./telemetry/metrics.js";
 export {
   createLogger,

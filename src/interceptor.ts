@@ -10,11 +10,10 @@ import {
   type LogSink,
 } from "./telemetry/logger.js";
 import { MetricsCollector } from "./telemetry/metrics.js";
-import { AnthropicTriageProvider } from "./providers/anthropic.js";
-import { OpenAITriageProvider } from "./providers/openai.js";
 
 export interface InterceptorOptions {
   config: TickleStickConfig;
+  triageProvider?: TriageProvider;
   logSink?: LogSink;
 }
 
@@ -31,37 +30,7 @@ export class Interceptor {
       options.logSink,
     );
     this.metrics = new MetricsCollector();
-    this.provider = this.initProvider();
-  }
-
-  private initProvider(): TriageProvider | null {
-    const tier1 = this.config.tickleStick.tier1;
-    if (!tier1) return null;
-
-    const providers = this.config.tickleStick.providers;
-    const providerName = tier1.provider;
-    const timeout = tier1.timeout;
-
-    switch (providerName) {
-      case "anthropic": {
-        const cfg = providers.anthropic;
-        if (!cfg)
-          throw new Error(
-            "Tier 1 references anthropic but no provider config found",
-          );
-        return new AnthropicTriageProvider(cfg, tier1.model, timeout);
-      }
-      case "openai": {
-        const cfg = providers.openai;
-        if (!cfg)
-          throw new Error(
-            "Tier 1 references openai but no provider config found",
-          );
-        return new OpenAITriageProvider(cfg, tier1.model, timeout);
-      }
-      default:
-        throw new Error(`Unknown provider: ${providerName}`);
-    }
+    this.provider = options.triageProvider ?? null;
   }
 
   async process(message: InboundMessage): Promise<TierResult> {
@@ -90,7 +59,7 @@ export class Interceptor {
 
         if (tier1Result.action === "human") {
           // Route to Tier 3
-          result = await processTier3(message, this.config.tickleStick.tier3);
+          result = processTier3(message);
           this.emit(message, result);
           return result;
         }

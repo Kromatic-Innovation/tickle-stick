@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { Interceptor } from "../src/interceptor.js";
 import type { TickleStickConfig } from "../src/config/schema.js";
-import type { InboundMessage } from "../src/types.js";
+import type { InboundMessage, TriageProvider } from "../src/types.js";
 
 function makeMessage(
   body: string,
@@ -32,9 +32,8 @@ const baseConfig: TickleStickConfig = {
       keywords: [],
     },
     tier1: undefined,
-    tier3: { routes: [] },
+
     telemetry: { enabled: false, format: "json", includeMessagePreview: false },
-    providers: {},
   },
 };
 
@@ -116,5 +115,60 @@ describe("Interceptor", () => {
     interceptor.resetMetrics();
     const metrics = interceptor.getMetrics();
     expect(metrics.totalProcessed).toBe(0);
+  });
+
+  it("uses injected triageProvider for Tier 1", async () => {
+    const mockProvider: TriageProvider = {
+      name: "mock",
+      triage: vi.fn().mockResolvedValue({
+        action: "deflect",
+        response: "Handled by mock provider",
+        confidence: 0.9,
+      }),
+    };
+
+    const config: TickleStickConfig = {
+      ...baseConfig,
+      tickleStick: {
+        ...baseConfig.tickleStick,
+        tier1: {
+          systemPrompt: "Classify this.",
+          confidenceThreshold: 0.7,
+          timeout: 5000,
+        },
+      },
+    };
+
+    const interceptor = new Interceptor({ config, triageProvider: mockProvider });
+    const result = await interceptor.process(
+      makeMessage("What is agent cost architecture?"),
+    );
+
+    expect(result.tier).toBe(1);
+    expect(result.action).toBe("deflect");
+    expect(result.response).toBe("Handled by mock provider");
+    expect(mockProvider.triage).toHaveBeenCalledOnce();
+  });
+
+  it("falls through to Tier 2 when tier1 config exists but no provider injected", async () => {
+    const config: TickleStickConfig = {
+      ...baseConfig,
+      tickleStick: {
+        ...baseConfig.tickleStick,
+        tier1: {
+          systemPrompt: "Classify this.",
+          confidenceThreshold: 0.7,
+          timeout: 5000,
+        },
+      },
+    };
+
+    const interceptor = new Interceptor({ config });
+    const result = await interceptor.process(
+      makeMessage("Complex question about APIs"),
+    );
+
+    expect(result.tier).toBe(2);
+    expect(result.action).toBe("passthrough");
   });
 });

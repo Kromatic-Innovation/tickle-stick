@@ -29,14 +29,10 @@ export const DEFAULT_CONFIG: TickleStickConfig = {
       ],
     },
     tier1: undefined,
-    tier3: {
-      routes: [],
-    },
     telemetry: {
       enabled: true,
       format: "json" as const,
       includeMessagePreview: false,
     },
-    providers: {},
   },
 };
