@@ -79,8 +79,6 @@ tickleStick:
         response: "You've been unsubscribed."
 
   tier1:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
     systemPrompt: |
       Classify this message as JSON:
       {"action": "deflect"|"escalate"|"human", "response": "...", "confidence": 0.0-1.0}
@@ -90,19 +88,26 @@ tickleStick:
     routes:
       - channel: webhook
         url: "${ESCALATION_WEBHOOK_URL}"
-
-  providers:
-    anthropic:
-      apiKey: "${ANTHROPIC_API_KEY}"
 ```
 
-Use it:
+Use it — the host agent injects its own `TriageProvider`:
 
 ```typescript
 import { Interceptor, loadConfig } from "tickle-stick";
+import type { TriageProvider } from "tickle-stick";
 
 const config = loadConfig();
-const interceptor = new Interceptor({ config });
+
+// Implement TriageProvider using whatever model the host already has
+const myProvider: TriageProvider = {
+  name: "host-model",
+  async triage(message, systemPrompt) {
+    // Call your model here
+    return { action: "deflect", response: "...", confidence: 0.9 };
+  },
+};
+
+const interceptor = new Interceptor({ config, triageProvider: myProvider });
 
 // Process an inbound message
 const result = await interceptor.process({
@@ -145,27 +150,29 @@ console.log(`Total cost: $${metrics.totalCost.toFixed(2)}`);
 console.log(`Saved: $${metrics.costSaved.toFixed(2)}`);
 ```
 
-## Providers
+## Provider Injection
 
-Tickle-stick ships with two Tier 1 providers:
-
-| Provider  | Model                     | Est. cost/call |
-| --------- | ------------------------- | -------------- |
-| Anthropic | claude-haiku-4-5-20251001 | ~$0.001        |
-| OpenAI    | gpt-4.1-nano              | ~$0.001        |
-
-Implement `TriageProvider` to add your own:
+Tickle-stick does **not** manage model providers. The host agent passes in a
+`TriageProvider` implementation — use whatever model you already have configured:
 
 ```typescript
 import type { TriageProvider } from "tickle-stick";
+import { parseTriageResponse } from "tickle-stick";
 
 const myProvider: TriageProvider = {
   name: "my-provider",
   async triage(message, systemPrompt) {
-    // Your model call here
-    return { action: "deflect", response: "...", confidence: 0.9 };
+    const text = await callYourModel(message, systemPrompt);
+    // parseTriageResponse extracts JSON from model output
+    return parseTriageResponse(text);
   },
 };
+```
+
+Pass it when constructing the interceptor:
+
+```typescript
+const interceptor = new Interceptor({ config, triageProvider: myProvider });
 ```
 
 ## Architecture

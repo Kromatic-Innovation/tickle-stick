@@ -24,8 +24,8 @@ Inbound Message
   └────┬────┘
        │ "human" (from Tier 1)
   ┌────▼────┐
-  │ Tier 3  │  Human escalation — email/Slack/webhook
-  │  FREE   │  Routes to your team
+  │ Tier 3  │  Human escalation — decision only
+  │  FREE   │  Host dispatches (email/Slack/webhook)
   └─────────┘
 ```
 
@@ -37,11 +37,10 @@ Inbound Message
 | `src/tiers/tier0-deterministic.ts` | Pattern matching: regex, keyword, command                |
 | `src/tiers/tier1-triage.ts`        | Cheap model call, confidence check, decision parsing     |
 | `src/tiers/tier2-passthrough.ts`   | No-op — signals host agent loop should proceed           |
-| `src/tiers/tier3-human.ts`         | Dispatches to webhook, email, or Slack                   |
+| `src/tiers/tier3-human.ts`         | Returns human escalation decision (host dispatches)      |
 | `src/config/schema.ts`             | Zod schema for `tickle-stick.yaml`                       |
 | `src/config/loader.ts`             | YAML loading, env var interpolation                      |
-| `src/providers/anthropic.ts`       | Anthropic (Haiku) triage provider                        |
-| `src/providers/openai.ts`          | OpenAI triage provider                                   |
+| `src/providers/parse.ts`           | Shared `parseTriageResponse` utility for model output    |
 | `src/telemetry/logger.ts`          | Structured tier decision logging                         |
 | `src/telemetry/metrics.ts`         | Cost tracking and tier distribution                      |
 
@@ -51,7 +50,7 @@ The pipeline never throws. Each tier failure falls through to the next:
 
 - **Tier 0 error** → log warning, try Tier 1
 - **Tier 1 error** → log warning, fall through to Tier 2 (passthrough)
-- **Tier 3 error** → log error, return result with error metadata
+- **Tier 3** → pure decision, no I/O — cannot fail
 
 Config validation errors throw at startup (fail fast).
 
@@ -69,4 +68,6 @@ interface TriageProvider {
 }
 ```
 
-See `src/providers/anthropic.ts` for a reference implementation.
+The host agent injects a `TriageProvider` when constructing the `Interceptor`.
+Use `parseTriageResponse` from `src/providers/parse.ts` to parse model output
+into a `TriageDecision`.

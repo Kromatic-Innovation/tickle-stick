@@ -34,8 +34,6 @@ tickleStick:
         response: string
 
   tier1:
-    provider: string             # Provider key (must exist in providers.*)
-    model: string                # Model identifier
     systemPrompt: string         # Classification prompt
     confidenceThreshold: number  # 0-1, below this → escalate (default: 0.7)
     timeout: number              # ms (default: 5000)
@@ -52,16 +50,10 @@ tickleStick:
     format: "json" | "text"      # default: "json"
     includeMessagePreview: boolean  # default: false (privacy)
 
-  providers:
-    anthropic?:
-      apiKey: string
-      baseUrl?: string
-    openai?:
-      apiKey: string
-      baseUrl?: string
-    ollama?:
-      baseUrl: string            # default: http://localhost:11434
 ```
+
+> **Note:** Model provider configuration (API keys, model selection) is the host
+> agent's responsibility. Inject a `TriageProvider` via the `Interceptor` constructor.
 
 ## Defaults
 

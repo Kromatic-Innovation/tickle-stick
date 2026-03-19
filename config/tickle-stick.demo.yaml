@@ -40,8 +40,6 @@ tickleStick:
         response: "Demo inbox — no mailing list to unsubscribe from! 😄"
 
   tier1:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
     systemPrompt: |
       You are the Tickle-Stick demo triage classifier. This is a public demo
       showing how agent cost hierarchies work.
@@ -58,18 +56,10 @@ tickleStick:
     confidenceThreshold: 0.7
     timeout: 5000
 
-  tier3:
-    routes:
-      - channel: email
-        to: "team@kromatic.com"
-      - channel: webhook
-        url: "${DEMO_ESCALATION_WEBHOOK}"
+  # Tier 3 is decision-only — the host handles dispatch when it sees
+  # action: "human" in the TierResult.
 
   telemetry:
     enabled: true
     format: json
     includeMessagePreview: true
-
-  providers:
-    anthropic:
-      apiKey: "${ANTHROPIC_API_KEY}"

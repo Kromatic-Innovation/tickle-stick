@@ -26,8 +26,6 @@ tickleStick:
         response: "Your request has been noted. You will be removed from future communications."
 
   tier1:
-    provider: anthropic
-    model: claude-haiku-4-5-20251001
     systemPrompt: |
       You are a message triage classifier. Analyze the incoming message and classify it.
 
@@ -43,16 +41,10 @@ tickleStick:
     confidenceThreshold: 0.7
     timeout: 5000
 
-  tier3:
-    routes:
-      - channel: webhook
-        url: "${ESCALATION_WEBHOOK_URL}"
+  # Tier 3 is decision-only — the host handles dispatch when it sees
+  # action: "human" in the TierResult.
 
   telemetry:
     enabled: true
     format: json
     includeMessagePreview: false
-
-  providers:
-    anthropic:
-      apiKey: "${ANTHROPIC_API_KEY}"

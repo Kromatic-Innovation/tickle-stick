@@ -14,9 +14,12 @@ Use `${VAR_NAME}` syntax in YAML values. Variables are interpolated before
 schema validation.
 
 ```yaml
-providers:
-  anthropic:
-    apiKey: "${ANTHROPIC_API_KEY}"
+tier0:
+  patterns:
+    - match: "^hello$"
+      type: regex
+      action: deflect
+      response: "${GREETING_RESPONSE}"
 ```
 
 Missing env vars resolve to empty string (which may fail validation if the
@@ -39,34 +42,24 @@ tickleStick:
         response: "Done."
 
   tier1: # Optional — omit to disable Tier 1
-    provider: anthropic # Must match a key in providers.*
-    model: claude-haiku-4-5-20251001
     systemPrompt: "..." # Classification prompt
     confidenceThreshold: 0.7 # Below this → escalate (default: 0.7)
     timeout: 5000 # ms (default: 5000)
 
-  tier3:
-    routes: # Escalation targets
-      - channel: webhook
-        url: "https://..."
-      - channel: email
-        to: "team@example.com"
-      - channel: slack
-        webhookUrl: "https://hooks.slack.com/..."
+  # Tier 3 (human escalation) is decision-only — no config needed.
+  # When the TierResult has action: "human", the host handles dispatch
+  # (email, Slack, webhook) through its own infrastructure.
 
   telemetry:
     enabled: true # default: true
     format: json | text # default: json
     includeMessagePreview: false # default: false (privacy)
-
-  providers:
-    anthropic:
-      apiKey: "${ANTHROPIC_API_KEY}"
-      baseUrl: "https://..." # Optional override
-    openai:
-      apiKey: "${OPENAI_API_KEY}"
-      baseUrl: "https://..."
 ```
+
+> **Note:** Tier 1 model configuration (provider, model, API keys) is the host's
+> responsibility. Pass a `TriageProvider` implementation to the `Interceptor`
+> constructor. Tier 3 dispatch (email, Slack, webhook) is also the host's
+> responsibility — tickle-stick returns the decision, the host acts on it.
 
 ## Pattern Types
 

@@ -43,16 +43,6 @@
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
-  "peerDependencies": {
-    "@anthropic-ai/sdk": ">=0.30.0",
-    "openai": ">=4.70.0"
-  },
-  "peerDependenciesMeta": {
-    "@anthropic-ai/sdk": {
-      "optional": true
-    },
-    "openai": {
-      "optional": true
-    }
-  }
+  "peerDependencies": {},
+  "peerDependenciesMeta": {}
 }

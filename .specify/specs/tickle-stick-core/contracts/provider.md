@@ -52,24 +52,25 @@ confidence: 0 }` (fail open).
 4. **No side effects** — Providers must not send responses, modify state,
    or call external services beyond the model API.
 
-## Shipped providers
+## Host injection
 
-| Provider    | Model                     | Cost/call (est.) |
-| ----------- | ------------------------- | ---------------- |
-| `anthropic` | claude-haiku-4-5-20251001 | ~$0.001          |
-| `openai`    | gpt-4.1-nano              | ~$0.001          |
+Tickle-stick does not ship concrete providers. The host agent injects a
+`TriageProvider` implementation when constructing the `Interceptor`:
 
-## Provider registration
+```typescript
+import { Interceptor, parseTriageResponse } from "tickle-stick";
+import type { TriageProvider } from "tickle-stick";
 
-Providers are registered by name in config and instantiated by the
-interceptor at startup:
+const provider: TriageProvider = {
+  name: "host-model",
+  async triage(message, systemPrompt) {
+    const text = await hostModelCall(message, systemPrompt);
+    return parseTriageResponse(text);
+  },
+};
 
-```yaml
-tier1:
-  provider: anthropic # Must match a key in providers.*
-  model: claude-haiku-4-5-20251001
-
-providers:
-  anthropic:
-    apiKey: "${ANTHROPIC_API_KEY}"
+const interceptor = new Interceptor({ config, triageProvider: provider });
 ```
+
+Use `parseTriageResponse` to extract a `TriageDecision` from raw model
+output (handles plain JSON and markdown-wrapped code blocks).
