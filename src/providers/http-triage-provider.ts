@@ -1,9 +1,5 @@
-import type {
-  InboundMessage,
-  TriageDecision,
-  TriageProvider,
-} from "../types.js";
-import { parseTriageResponse } from "./parse.js";
+import type { ClassificationResult, TriageProvider } from "../types.js";
+import { parseClassificationResponse } from "./parse.js";
 
 export interface HttpTriageProviderOptions {
   /** The actual API key value (not an env var name). */
@@ -47,33 +43,33 @@ export class HttpTriageProvider implements TriageProvider {
     };
   }
 
-  async triage(
-    message: InboundMessage,
+  async classify(
+    text: string,
     systemPrompt: string,
-  ): Promise<TriageDecision> {
+  ): Promise<ClassificationResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeout);
 
     try {
       const { url, init } =
         this.options.provider === "anthropic"
-          ? this.buildAnthropicRequest(message.body, systemPrompt)
-          : this.buildOpenAIRequest(message.body, systemPrompt);
+          ? this.buildAnthropicRequest(text, systemPrompt)
+          : this.buildOpenAIRequest(text, systemPrompt);
 
       const response = await fetch(url, { ...init, signal: controller.signal });
 
       if (!response.ok) {
-        return { action: "escalate", confidence: 0 };
+        return { classification: "needs-reasoning", confidence: 0 };
       }
 
       const body = (await response.json()) as Record<string, unknown>;
-      const text = this.extractText(body);
-      const decision = parseTriageResponse(text);
+      const responseText = this.extractText(body);
+      const decision = parseClassificationResponse(responseText);
       decision.tokenUsage = this.extractTokenUsage(body);
 
       return decision;
     } catch {
-      return { action: "escalate", confidence: 0 };
+      return { classification: "needs-reasoning", confidence: 0 };
     } finally {
       clearTimeout(timer);
     }
@@ -129,14 +125,12 @@ export class HttpTriageProvider implements TriageProvider {
   }
 
   private extractText(body: Record<string, unknown>): string {
-    // OpenAI format
     if (Array.isArray(body.choices)) {
       const first = body.choices[0] as
         | { message?: { content?: string } }
         | undefined;
       return first?.message?.content ?? "";
     }
-    // Anthropic format
     if (Array.isArray(body.content)) {
       const first = body.content[0] as { text?: string } | undefined;
       return first?.text ?? "";
@@ -150,14 +144,12 @@ export class HttpTriageProvider implements TriageProvider {
     const usage = body.usage as Record<string, number> | undefined;
     if (!usage) return undefined;
 
-    // OpenAI: prompt_tokens / completion_tokens
     if (typeof usage.prompt_tokens === "number") {
       return {
         input: usage.prompt_tokens,
         output: usage.completion_tokens ?? 0,
       };
     }
-    // Anthropic: input_tokens / output_tokens
     if (typeof usage.input_tokens === "number") {
       return {
         input: usage.input_tokens,

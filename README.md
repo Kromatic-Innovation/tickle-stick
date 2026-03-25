@@ -1,6 +1,6 @@
-# 🦞 Tickle-Stick
+# Tickle-Stick
 
-**Opinionated cost-hierarchy extension for agentic workflows.**
+**Cost-optimized task execution pipeline for agentic workflows.**
 
 > Named after the diving tool used to gently probe before committing.
 
@@ -12,45 +12,47 @@
 
 You're running your agents wrong.
 
-Every inbound message — "hi", "unsubscribe", "what's your status?" — triggers
+Every scheduled task — email check, calendar sync, dependabot alerts — triggers
 a full agent loop at **~$0.15 per invocation**. That's $216/month just for
-email checks. Most of those messages don't need intelligence.
+email checks. Most of those tasks don't need intelligence.
 
-## The Solution: 4-Tier Cost Hierarchy
+## The Solution: 4-Tier Task Pipeline
 
-Triage cheaply before committing expensive intelligence.
+Run cheap scripts first. Classify with a cheap model. Only invoke expensive
+reasoning when items actually need it.
 
 ```
-Inbound Message
+Scheduled Task (cron trigger from host)
        │
   ┌────▼────┐
-  │ Tier 0  │  Deterministic — regex, keywords, commands
-  │  FREE   │  Latency: <10ms
+  │ Tier 0  │  Scripts — shell/Python, run by library
+  │  FREE   │  Fetch raw data → WorkItem[] (JSON stdout)
+  │  <50ms  │  Empty output = pipeline stops here ($0)
   └────┬────┘
-       │ no match
+       │ items found
   ┌────▼────┐
-  │ Tier 1  │  Cheap model triage — Haiku / nano / local
-  │ ~$0.001 │  Latency: <2s
+  │ Tier 1  │  Cheap model — Haiku / nano / local
+  │ ~$0.001 │  Classify: routine / urgent / needs-reasoning / human
   └────┬────┘
-       │ "escalate"
+       │ items needing reasoning
   ┌────▼────┐
-  │ Tier 2  │  Full agent loop — your existing workflow
-  │ ~$0.15  │  Passthrough, no Tickle-Stick logic
+  │ Tier 2  │  Host callback — full agent / model
+  │ ~$0.05+ │  Reason, synthesize, draft responses
   └────┬────┘
-       │ "human" (from Tier 1)
+       │ items needing human
   ┌────▼────┐
-  │ Tier 3  │  Human escalation — email/Slack/webhook
-  │  FREE   │  Routes to your team
+  │ Tier 3  │  Host callback — human escalation
+  │  FREE   │  Routes to Slack/WhatsApp/email
   └─────────┘
 ```
 
 ## Cost Comparison
 
-| Scenario                             | Without Tickle-Stick | With Tickle-Stick | Savings |
-| ------------------------------------ | -------------------- | ----------------- | ------- |
-| 100 emails/day (60% simple)          | $15.00/day           | $2.10/day         | **86%** |
-| 500 Slack messages/day (80% trivial) | $75.00/day           | $3.75/day         | **95%** |
-| 1000 messages/day (mixed)            | $150.00/day          | $22.50/day        | **85%** |
+| Scenario                       | Without Tickle-Stick | With Tickle-Stick | Savings |
+| ------------------------------ | -------------------- | ----------------- | ------- |
+| Daily email check (60% empty)  | $15.00/day           | $0.60/day         | **96%** |
+| 5 cron tasks/day (80% no data) | $3.75/day            | $0.15/day         | **96%** |
+| Weekly retro + daily briefing  | $1.80/week           | $0.30/week        | **83%** |
 
 ## Quick Start
 
@@ -62,226 +64,204 @@ Create `tickle-stick.yaml`:
 
 ```yaml
 tickleStick:
-  tier0:
-    patterns:
-      - match: "^(hi|hello|hey)\\b"
-        type: regex
-        flags: "i"
-        action: deflect
-        response: "Hello! How can I help?"
-      - match: "/help"
-        type: command
-        action: deflect
-        response: "Here's what I can do..."
-    keywords:
-      - match: ["unsubscribe", "stop"]
-        action: deflect
-        response: "You've been unsubscribed."
-
-  tier1:
-    systemPrompt: |
-      Classify this message as JSON:
-      {"action": "deflect"|"escalate"|"human", "response": "...", "confidence": 0.0-1.0}
-    confidenceThreshold: 0.7
-
-  tier3:
-    routes:
-      - channel: webhook
-        url: "${ESCALATION_WEBHOOK_URL}"
+  pipelines:
+    email-check:
+      tier0:
+        command: "python3"
+        args: ["scripts/check-email.py"]
+        timeout: 30000
+      tier1:
+        systemPrompt: |
+          Classify this item as JSON:
+          {"classification": "routine"|"urgent"|"needs-reasoning"|"human",
+           "response": "one-line summary", "confidence": 0.0-1.0}
+        confidenceThreshold: 0.7
+      tier2:
+        prompt: |
+          Here are items that need reasoning:
+          {{items}}
+          Synthesize a response.
+      tier3:
+        route: "main"
 ```
 
-Use it — the host agent injects its own `TriageProvider`:
+Use it:
 
 ```typescript
-import { Interceptor, loadConfig } from "tickle-stick";
+import { Pipeline, loadConfig } from "tickle-stick";
 import type { TriageProvider } from "tickle-stick";
 
 const config = loadConfig();
+const pipelineConfig = config.tickleStick.pipelines["email-check"];
 
-// Implement TriageProvider using whatever model the host already has
+// Host provides a TriageProvider for Tier 1 classification
 const myProvider: TriageProvider = {
-  name: "host-model",
-  async triage(message, systemPrompt) {
-    // Call your model here
-    return { action: "deflect", response: "...", confidence: 0.9 };
+  name: "haiku",
+  async classify(text, systemPrompt) {
+    const response = await callYourCheapModel(text, systemPrompt);
+    return parseClassificationResponse(response);
   },
 };
 
-const interceptor = new Interceptor({ config, triageProvider: myProvider });
-
-// Process an inbound message
-const result = await interceptor.process({
-  id: "msg-001",
-  channel: "email",
-  from: "alice@example.com",
-  subject: "Hello!",
-  body: "Hi there!",
-  timestamp: new Date(),
+const pipeline = new Pipeline({
+  name: "email-check",
+  config: pipelineConfig,
+  triageProvider: myProvider,
+  onTier2: async (items, prompt) => {
+    // Call your expensive model here
+    return await callYourReasoningModel(prompt);
+  },
+  onTier3: async (items) => {
+    // Send to Slack, WhatsApp, etc.
+    await sendToChannel(items.map((i) => i.summary).join("\n"));
+  },
 });
 
-console.log(result);
-// { tier: 0, action: "deflect", response: "Hello! How can I help?",
-//   costEstimate: 0, latencyMs: 0.3 }
+const result = await pipeline.run();
+console.log(
+  `Items: ${result.tier0Items}, Cost: $${result.costEstimate.toFixed(4)}`,
+);
 ```
 
-## Telemetry
+## Tier 0 Scripts
 
-Every message is logged with tier, action, latency, and cost:
+Tier 0 scripts are shell commands that output JSON `WorkItem[]` to stdout:
 
-```json
-{
-  "event": "tickle_stick.process",
-  "messageId": "msg-001",
-  "channel": "email",
-  "tier": 0,
-  "action": "deflect",
-  "latencyMs": 0.3,
-  "costEstimate": 0,
-  "timestamp": "2026-03-19T10:00:00.000Z"
-}
+```python
+#!/usr/bin/env python3
+import json, sys
+
+items = [
+    {
+        "id": "email-001",
+        "source": "gmail",
+        "type": "email",
+        "summary": "Meeting tomorrow at 10am",
+        "body": "Full email body here...",
+        "timestamp": "2026-03-25T10:00:00Z"
+    }
+]
+
+json.dump(items, sys.stdout)
 ```
 
-Track aggregate savings:
-
-```typescript
-const metrics = interceptor.getMetrics();
-console.log(`Processed: ${metrics.totalProcessed}`);
-console.log(`Total cost: $${metrics.totalCost.toFixed(2)}`);
-console.log(`Saved: $${metrics.costSaved.toFixed(2)}`);
-```
+If the script outputs `[]` or fails, the pipeline stops at Tier 0 with $0 cost.
 
 ## Provider Injection
 
-Tickle-stick does **not** manage model providers. The host agent passes in a
-`TriageProvider` implementation — use whatever model you already have configured:
+Tickle-stick does **not** manage model providers. The host passes in a
+`TriageProvider` implementation:
 
 ```typescript
 import type { TriageProvider } from "tickle-stick";
-import { parseTriageResponse } from "tickle-stick";
+import { parseClassificationResponse } from "tickle-stick";
 
 const myProvider: TriageProvider = {
   name: "my-provider",
-  async triage(message, systemPrompt) {
-    const text = await callYourModel(message, systemPrompt);
-    // parseTriageResponse extracts JSON from model output
-    return parseTriageResponse(text);
+  async classify(text, systemPrompt) {
+    const raw = await callYourModel(text, systemPrompt);
+    return parseClassificationResponse(raw);
   },
 };
 ```
 
-Pass it when constructing the interceptor:
+Or use the built-in `HttpTriageProvider` for OpenAI/Anthropic APIs:
 
 ```typescript
-const interceptor = new Interceptor({ config, triageProvider: myProvider });
+import { HttpTriageProvider } from "tickle-stick";
+
+const provider = new HttpTriageProvider({
+  apiKey: process.env.OPENAI_API_KEY!,
+  model: "gpt-4o-mini",
+  provider: "openai",
+});
 ```
 
 ## Budget & Alerts
 
-Cap Tier 1 spend and get notified when thresholds are crossed. Add a
-`budget` section to your config:
+Cap Tier 1 spend and get notified when thresholds are crossed:
 
 ```yaml
 tickleStick:
-  # ... tier0, tier1, telemetry ...
   budget:
-    maxDailySpend: 1.00 # USD, optional
-    maxWeeklySpend: 5.00 # USD, optional
+    maxDailySpend: 1.00
+    maxWeeklySpend: 5.00
     alerts:
-      - at: "80%" # percentage of daily/weekly limit
-      - at: 0.50 # absolute USD
-    retentionDays: 30 # auto-prune events older than this
+      - at: "80%"
+      - at: 0.50
+    retentionDays: 30
 ```
 
-When a budget cap is reached, Tier 1 (model triage) is automatically
-disabled — messages still go through Tier 0 (free deterministic matching)
-but the model is not called.
+When a budget cap is reached, Tier 1 is skipped — all items go directly to
+Tier 2 (host reasoning).
 
 ### Storage Adapter
 
-Budget tracking requires a **storage adapter** to persist triage events
-and query spend totals. If no storage adapter is provided, events are not
-persisted and budget enforcement is disabled.
-
-Implement the `StorageAdapter` interface using whatever database your host
-already has:
+Budget tracking requires a storage adapter to persist events:
 
 ```typescript
 import type { StorageAdapter } from "tickle-stick";
 
 const storage: StorageAdapter = {
   writeEvent(event) {
-    // INSERT event into your database
-    db.run("INSERT INTO triage_events ...", event);
+    db.run("INSERT INTO pipeline_events ...", event);
   },
   getSpendSince(since) {
-    // SUM(cost_estimate) WHERE timestamp >= since
     return db.get("SELECT SUM(cost_estimate) ...", since);
   },
   prune(before) {
-    // DELETE WHERE timestamp < before
-    return db.run("DELETE FROM triage_events WHERE timestamp < ?", before);
+    return db.run("DELETE FROM pipeline_events WHERE timestamp < ?", before);
   },
 };
 ```
 
 ### Alert Sink
 
-Provide an `AlertSink` callback to receive budget alerts. The host
-decides how to deliver them (messaging channel, email, webhook, etc.):
-
 ```typescript
-import type { AlertSink, BudgetAlert } from "tickle-stick";
+import type { AlertSink } from "tickle-stick";
 
-const alertSink: AlertSink = (alert: BudgetAlert) => {
-  // alert.type: "threshold" | "cap"
-  // alert.level: "daily" | "weekly"
-  // alert.message: human-readable string
-  // alert.currentSpend, alert.limit, alert.percentage
-  sendToMyChannel(alert.message);
+const alertSink: AlertSink = (alert) => {
+  sendToMyChannel(`[Budget] ${alert.message}`);
 };
 ```
 
-### Wiring It Together
+### Wiring Budget
 
 ```typescript
-const interceptor = new Interceptor({
-  config,
+const pipeline = new Pipeline({
+  name: "email-check",
+  config: pipelineConfig,
   triageProvider: myProvider,
-  storage, // optional — enables budget tracking
-  alertSink, // optional — enables alert notifications
-  timezone: "America/New_York", // optional, default "UTC"
+  onTier2: reasoningCallback,
+  storage,
+  alertSink,
+  budgetConfig: config.tickleStick.budget,
+  timezone: "America/New_York",
 });
 
-// Prune old events at startup
-await interceptor.pruneBudgetEvents();
+await pipeline.pruneBudgetEvents();
 ```
 
 ### Budget Status API
 
-Query current spend for dashboards or `/budget` commands:
-
 ```typescript
-const status = await interceptor.getBudgetStatus();
+const status = await pipeline.getBudgetStatus();
 if (status) {
   console.log(`Today: $${status.dailySpend.toFixed(2)}`);
   console.log(`This week: $${status.weeklySpend.toFixed(2)}`);
-  console.log(
-    `Daily limit: ${status.maxDailySpend ? `$${status.maxDailySpend.toFixed(2)}` : "none"}`,
-  );
   console.log(`Exceeded: ${status.exceeded}`);
 }
-// Returns null if no budget section is configured.
 ```
 
-## Architecture
+## Host Compatibility
 
-See [docs/architecture.md](docs/architecture.md) for the full module map
-and error handling strategy.
+Tickle-stick works with any host that provides two callbacks:
 
-## Configuration
-
-See [docs/configuration.md](docs/configuration.md) for the complete YAML
-schema reference.
+| Host     | Tier 2 (Reasoning)       | Tier 3 (Escalation)         |
+| -------- | ------------------------ | --------------------------- |
+| NanoClaw | Spawns agent container   | Sends to channel (WA/Slack) |
+| OpenClaw | Calls model API directly | Queues to delivery system   |
+| Custom   | Your reasoning logic     | Your escalation logic       |
 
 ## License
 

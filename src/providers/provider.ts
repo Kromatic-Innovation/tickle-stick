@@ -1,5 +1,5 @@
-export type { TriageProvider, TriageDecision } from "../types.js";
-export { parseTriageResponse } from "./parse.js";
+export type { TriageProvider, ClassificationResult } from "../types.js";
+export { parseClassificationResponse } from "./parse.js";
 export {
   HttpTriageProvider,
   type HttpTriageProviderOptions,

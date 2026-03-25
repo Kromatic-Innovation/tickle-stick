@@ -1,21 +1,22 @@
-export { Interceptor, type InterceptorOptions } from "./interceptor.js";
+export { Pipeline, type PipelineOptions } from "./pipeline.js";
 export { loadConfig, loadConfigFromString } from "./config/loader.js";
 export { DEFAULT_CONFIG } from "./config/defaults.js";
 export { tickleStickConfigSchema } from "./config/schema.js";
 export type {
   TickleStickConfig,
+  PipelineConfigEntry,
   Tier0Config,
   Tier1Config,
+  Tier2Config,
+  Tier3Config,
   TelemetryConfig,
-  PatternRule,
-  KeywordGroup,
   BudgetConfig,
 } from "./config/schema.js";
 export type {
-  InboundMessage,
-  TierResult,
-  TierAction,
-  TriageDecision,
+  WorkItem,
+  ClassifiedItem,
+  PipelineResult,
+  ClassificationResult,
   TriageProvider,
   StorageAdapter,
   BudgetAlert,
@@ -26,7 +27,8 @@ export {
   BudgetManager,
   type BudgetManagerOptions,
 } from "./budget/budget-manager.js";
-export { parseTriageResponse } from "./providers/parse.js";
+export { runScript } from "./script-runner.js";
+export { parseClassificationResponse } from "./providers/parse.js";
 export {
   HttpTriageProvider,
   type HttpTriageProviderOptions,
@@ -34,7 +36,6 @@ export {
 export { MetricsCollector, type TierMetrics } from "./telemetry/metrics.js";
 export {
   createLogger,
-  buildTelemetryEvent,
   type TelemetryEvent,
   type LogSink,
 } from "./telemetry/logger.js";

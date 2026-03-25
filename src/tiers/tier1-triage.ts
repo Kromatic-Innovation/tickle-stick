@@ -1,43 +1,40 @@
-import type { InboundMessage, TierResult, TriageProvider } from "../types.js";
+import type { WorkItem, ClassifiedItem, TriageProvider } from "../types.js";
 import type { Tier1Config } from "../config/schema.js";
 
-export async function processTier1(
-  message: InboundMessage,
+export async function classifyItem(
+  item: WorkItem,
   config: Tier1Config,
   provider: TriageProvider,
-): Promise<TierResult> {
+): Promise<{
+  classified: ClassifiedItem;
+  costEstimate: number;
+  latencyMs: number;
+}> {
   const start = performance.now();
+  const text = item.body ? `${item.summary}\n\n${item.body}` : item.summary;
 
-  const decision = await provider.triage(message, config.systemPrompt);
+  const result = await provider.classify(text, config.systemPrompt);
   const latencyMs = performance.now() - start;
 
-  // Estimate cost from token usage
-  let costEstimate = 0.001; // Default estimate for cheap models
-  if (decision.tokenUsage) {
-    // Rough per-token pricing for cheap models (input + output)
+  let costEstimate = 0.001;
+  if (result.tokenUsage) {
     costEstimate =
-      decision.tokenUsage.input * 0.00000025 +
-      decision.tokenUsage.output * 0.00000125;
+      result.tokenUsage.input * 0.00000025 +
+      result.tokenUsage.output * 0.00000125;
   }
 
-  // If confidence is below threshold, escalate regardless of decision
-  if (decision.confidence < config.confidenceThreshold) {
-    return {
-      tier: 1,
-      action: "escalate",
-      costEstimate,
-      latencyMs,
-      confidence: decision.confidence,
-      metadata: { reason: "below_confidence_threshold" },
-    };
-  }
+  // Below confidence threshold → escalate to reasoning
+  const classification =
+    result.confidence < config.confidenceThreshold
+      ? ("needs-reasoning" as const)
+      : result.classification;
 
-  return {
-    tier: 1,
-    action: decision.action,
-    response: decision.response,
-    confidence: decision.confidence,
-    costEstimate,
-    latencyMs,
+  const classified: ClassifiedItem = {
+    ...item,
+    classification,
+    confidence: result.confidence,
+    tier1Response: result.response,
   };
+
+  return { classified, costEstimate, latencyMs };
 }

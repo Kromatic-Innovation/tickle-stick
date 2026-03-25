@@ -9,88 +9,96 @@ describe("Config Schema", () => {
       tickleStick: {},
     });
 
-    expect(result.tickleStick.tier0.patterns).toEqual([]);
-    expect(result.tickleStick.tier1).toBeUndefined();
+    expect(result.tickleStick.pipelines).toEqual({});
     expect(result.tickleStick.telemetry.enabled).toBe(true);
   });
 
-  it("validates a full config", () => {
+  it("validates a config with pipelines", () => {
     const result = tickleStickConfigSchema.parse({
       tickleStick: {
-        tier0: {
-          patterns: [
-            {
-              match: "^hello$",
-              type: "regex",
-              flags: "i",
-              action: "deflect",
-              response: "Hi!",
+        pipelines: {
+          "daily-briefing": {
+            tier0: {
+              command: "python3",
+              args: ["scripts/fetch-daily.py"],
+              timeout: 30000,
             },
-          ],
-          keywords: [
-            {
-              match: ["test"],
-              action: "deflect",
-              response: "Test response",
+            tier1: {
+              systemPrompt: "Classify this.",
+              confidenceThreshold: 0.8,
             },
-          ],
-        },
-        tier1: {
-          systemPrompt: "Classify this.",
-          confidenceThreshold: 0.8,
-          timeout: 3000,
+            tier2: {
+              prompt: "Synthesize: {{items}}",
+            },
+            tier3: {
+              route: "main",
+            },
+          },
         },
         telemetry: {
           enabled: true,
           format: "json",
-          includeMessagePreview: true,
+        },
+        budget: {
+          maxDailySpend: 1.0,
+          maxWeeklySpend: 5.0,
+          alerts: [{ at: "80%" }, { at: 0.5 }],
+          retentionDays: 30,
         },
       },
     });
 
-    expect(result.tickleStick.tier1!.confidenceThreshold).toBe(0.8);
+    const pipeline = result.tickleStick.pipelines["daily-briefing"];
+    expect(pipeline.tier1!.confidenceThreshold).toBe(0.8);
+    expect(pipeline.tier0.command).toBe("python3");
+    expect(pipeline.tier2!.prompt).toContain("{{items}}");
+    expect(result.tickleStick.budget!.maxDailySpend).toBe(1.0);
   });
 
   it("applies defaults for optional fields", () => {
     const result = tickleStickConfigSchema.parse({
       tickleStick: {
-        tier1: {
-          systemPrompt: "Test",
+        pipelines: {
+          test: {
+            tier0: { command: "echo", args: ["[]"] },
+            tier1: { systemPrompt: "Test" },
+          },
         },
       },
     });
 
-    expect(result.tickleStick.tier1!.confidenceThreshold).toBe(0.7);
-    expect(result.tickleStick.tier1!.timeout).toBe(5000);
+    const pipeline = result.tickleStick.pipelines["test"];
+    expect(pipeline.tier1!.confidenceThreshold).toBe(0.7);
+    expect(pipeline.tier0.timeout).toBe(30000);
     expect(result.tickleStick.telemetry.format).toBe("json");
-  });
-
-  it("rejects invalid action in pattern", () => {
-    expect(() =>
-      tickleStickConfigSchema.parse({
-        tickleStick: {
-          tier0: {
-            patterns: [
-              {
-                match: "test",
-                type: "regex",
-                action: "escalate", // Only "deflect" is valid for tier0
-                response: "test",
-              },
-            ],
-          },
-        },
-      }),
-    ).toThrow();
   });
 
   it("rejects invalid confidence threshold", () => {
     expect(() =>
       tickleStickConfigSchema.parse({
         tickleStick: {
-          tier1: {
-            systemPrompt: "test",
-            confidenceThreshold: 1.5, // Must be 0-1
+          pipelines: {
+            test: {
+              tier0: { command: "echo" },
+              tier1: {
+                systemPrompt: "test",
+                confidenceThreshold: 1.5,
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("requires tier0 command in pipeline", () => {
+    expect(() =>
+      tickleStickConfigSchema.parse({
+        tickleStick: {
+          pipelines: {
+            test: {
+              tier0: {},
+            },
           },
         },
       }),
@@ -109,35 +117,35 @@ describe("Config Loader", () => {
     process.env = originalEnv;
   });
 
-  it("parses YAML string", () => {
+  it("parses YAML string with pipeline config", () => {
     const yaml = `
 tickleStick:
-  tier0:
-    patterns:
-      - match: "^hi$"
-        type: regex
-        action: deflect
-        response: "Hello!"
+  pipelines:
+    email-check:
+      tier0:
+        command: "python3"
+        args: ["check-email.py"]
 `;
     const config = loadConfigFromString(yaml);
-    expect(config.tickleStick.tier0.patterns).toHaveLength(1);
+    const pipeline = config.tickleStick.pipelines["email-check"];
+    expect(pipeline.tier0.command).toBe("python3");
+    expect(pipeline.tier0.args).toEqual(["check-email.py"]);
   });
 
   it("interpolates environment variables", () => {
-    process.env.TEST_GREETING = "Welcome aboard!";
+    process.env.SCRIPT_PATH = "custom/script.py";
 
     const yaml = `
 tickleStick:
-  tier0:
-    patterns:
-      - match: "^hi$"
-        type: regex
-        action: deflect
-        response: "\${TEST_GREETING}"
+  pipelines:
+    test:
+      tier0:
+        command: "python3"
+        args: ["\${SCRIPT_PATH}"]
 `;
     const config = loadConfigFromString(yaml);
-    expect(config.tickleStick.tier0.patterns[0].response).toBe(
-      "Welcome aboard!",
+    expect(config.tickleStick.pipelines["test"].tier0.args[0]).toBe(
+      "custom/script.py",
     );
   });
 
@@ -146,15 +154,14 @@ tickleStick:
 
     const yaml = `
 tickleStick:
-  tier0:
-    patterns:
-      - match: "^test$"
-        type: regex
-        action: deflect
-        response: "\${NONEXISTENT_VAR}"
+  pipelines:
+    test:
+      tier0:
+        command: "\${NONEXISTENT_VAR}"
 `;
+    // empty string command will still parse (schema allows any string)
     const config = loadConfigFromString(yaml);
-    expect(config.tickleStick.tier0.patterns[0].response).toBe("");
+    expect(config.tickleStick.pipelines["test"].tier0.command).toBe("");
   });
 });
 
@@ -164,8 +171,8 @@ describe("Default Config", () => {
     expect(result).toBeDefined();
   });
 
-  it("has Tier 0 patterns", () => {
-    expect(DEFAULT_CONFIG.tickleStick.tier0.patterns.length).toBeGreaterThan(0);
+  it("has empty pipelines by default", () => {
+    expect(Object.keys(DEFAULT_CONFIG.tickleStick.pipelines)).toHaveLength(0);
   });
 
   it("has telemetry enabled", () => {

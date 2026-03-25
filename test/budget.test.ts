@@ -6,11 +6,10 @@ import type { StorageAdapter, BudgetAlert } from "../src/types.js";
 
 function makeEvent(cost = 0.001): TelemetryEvent {
   return {
-    event: "tickle_stick.process",
-    messageId: `msg-${Math.random().toString(36).slice(2, 6)}`,
-    channel: "test",
+    event: "tickle_stick.pipeline",
+    pipeline: "test",
     tier: 1,
-    action: "deflect",
+    action: "routine",
     latencyMs: 50,
     costEstimate: cost,
     timestamp: new Date().toISOString(),
@@ -167,7 +166,6 @@ describe("BudgetManager", () => {
     await mgr.record(makeEvent(0.6));
     await mgr.record(makeEvent(0.1));
 
-    // Threshold alert should fire once, not twice
     const thresholdCalls = alertSink.mock.calls.filter(
       ([a]: [BudgetAlert]) => a.type === "threshold",
     );
@@ -193,11 +191,9 @@ describe("BudgetManager", () => {
   it("works without storage (no persistence, no budget enforcement)", async () => {
     const mgr = new BudgetManager({
       config: makeConfig({ maxDailySpend: 0.01 }),
-      // no storage
     });
 
     await mgr.record(makeEvent(1.0));
-    // Without storage, cannot query spend, so budget is never exceeded
     expect(mgr.isBudgetExceeded()).toBe(false);
   });
 
@@ -205,12 +201,10 @@ describe("BudgetManager", () => {
     const mgr = new BudgetManager({
       config: makeConfig({ maxDailySpend: 0.01 }),
       storage,
-      // no alertSink
     });
 
     await mgr.record(makeEvent(0.02));
     expect(mgr.isBudgetExceeded()).toBe(true);
-    // No error thrown despite no alertSink
   });
 
   it("prunes old events from storage", async () => {
@@ -219,12 +213,9 @@ describe("BudgetManager", () => {
       storage,
     });
 
-    // Add an old event
     const old = makeEvent(0.01);
     old.timestamp = new Date(Date.now() - 2 * 86400000).toISOString();
     storage.events.push(old);
-
-    // Add a recent event
     storage.events.push(makeEvent(0.01));
 
     const pruned = await mgr.prune();
@@ -245,7 +236,6 @@ describe("BudgetManager", () => {
     await mgr.record(makeEvent(0.02));
     const callsBefore = alertSink.mock.calls.length;
 
-    // Simulate day change
     mgr._resetAlerts();
 
     await mgr.record(makeEvent(0.02));

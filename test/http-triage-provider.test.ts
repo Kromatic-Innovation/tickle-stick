@@ -3,17 +3,6 @@ import {
   HttpTriageProvider,
   type HttpTriageProviderOptions,
 } from "../src/providers/http-triage-provider.js";
-import type { InboundMessage } from "../src/types.js";
-
-function makeMessage(body: string): InboundMessage {
-  return {
-    id: "test-msg",
-    channel: "whatsapp",
-    from: "user@example.com",
-    body,
-    timestamp: new Date(),
-  };
-}
 
 function makeProvider(
   overrides: Partial<HttpTriageProviderOptions> = {},
@@ -55,7 +44,8 @@ describe("HttpTriageProvider", () => {
         choices: [
           {
             message: {
-              content: '{"action":"deflect","response":"Hi!","confidence":0.9}',
+              content:
+                '{"classification":"routine","response":"Normal","confidence":0.9}',
             },
           },
         ],
@@ -63,7 +53,7 @@ describe("HttpTriageProvider", () => {
       });
 
       const provider = makeProvider({ model: "gpt-4o-mini" });
-      await provider.triage(makeMessage("hello"), "Classify this.");
+      await provider.classify("hello", "Classify this.");
 
       const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
@@ -87,7 +77,8 @@ describe("HttpTriageProvider", () => {
         choices: [
           {
             message: {
-              content: '{"action":"deflect","response":"Hi!","confidence":0.9}',
+              content:
+                '{"classification":"routine","response":"Normal","confidence":0.9}',
             },
           },
         ],
@@ -95,13 +86,10 @@ describe("HttpTriageProvider", () => {
       });
 
       const provider = makeProvider();
-      const result = await provider.triage(
-        makeMessage("hello"),
-        "Classify this.",
-      );
+      const result = await provider.classify("hello", "Classify this.");
 
-      expect(result.action).toBe("deflect");
-      expect(result.response).toBe("Hi!");
+      expect(result.classification).toBe("routine");
+      expect(result.response).toBe("Normal");
       expect(result.confidence).toBe(0.9);
       expect(result.tokenUsage).toEqual({ input: 50, output: 20 });
     });
@@ -111,7 +99,7 @@ describe("HttpTriageProvider", () => {
         choices: [
           {
             message: {
-              content: '{"action":"escalate","confidence":0.8}',
+              content: '{"classification":"needs-reasoning","confidence":0.8}',
             },
           },
         ],
@@ -120,7 +108,7 @@ describe("HttpTriageProvider", () => {
       const provider = makeProvider({
         baseUrl: "https://openrouter.ai/api/v1",
       });
-      await provider.triage(makeMessage("test"), "Classify.");
+      await provider.classify("test", "Classify.");
 
       const [url] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
@@ -133,7 +121,7 @@ describe("HttpTriageProvider", () => {
       mockFetchResponse({
         content: [
           {
-            text: '{"action":"deflect","response":"Hello!","confidence":0.95}',
+            text: '{"classification":"routine","response":"Hello!","confidence":0.95}',
           },
         ],
         usage: { input_tokens: 40, output_tokens: 15 },
@@ -144,7 +132,7 @@ describe("HttpTriageProvider", () => {
         model: "claude-haiku-4-5-20251001",
         apiKey: "sk-ant-test",
       });
-      await provider.triage(makeMessage("hi"), "Classify.");
+      await provider.classify("hi", "Classify.");
 
       const [url, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
@@ -163,42 +151,44 @@ describe("HttpTriageProvider", () => {
     it("extracts Anthropic token usage", async () => {
       mockFetchResponse({
         content: [
-          { text: '{"action":"deflect","response":"Hi","confidence":0.9}' },
+          {
+            text: '{"classification":"routine","response":"Hi","confidence":0.9}',
+          },
         ],
         usage: { input_tokens: 40, output_tokens: 15 },
       });
 
       const provider = makeProvider({ provider: "anthropic" });
-      const result = await provider.triage(makeMessage("hi"), "Classify.");
+      const result = await provider.classify("hi", "Classify.");
 
       expect(result.tokenUsage).toEqual({ input: 40, output: 15 });
     });
   });
 
   describe("error handling", () => {
-    it("returns escalate on HTTP error", async () => {
+    it("returns needs-reasoning on HTTP error", async () => {
       mockFetchResponse({}, false);
 
       const provider = makeProvider();
-      const result = await provider.triage(makeMessage("test"), "Classify.");
+      const result = await provider.classify("test", "Classify.");
 
-      expect(result.action).toBe("escalate");
+      expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
     });
 
-    it("returns escalate on fetch failure", async () => {
+    it("returns needs-reasoning on fetch failure", async () => {
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error("Network error"),
       );
 
       const provider = makeProvider();
-      const result = await provider.triage(makeMessage("test"), "Classify.");
+      const result = await provider.classify("test", "Classify.");
 
-      expect(result.action).toBe("escalate");
+      expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
     });
 
-    it("returns escalate on abort (timeout)", async () => {
+    it("returns needs-reasoning on abort (timeout)", async () => {
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
         () =>
           new Promise((_resolve, reject) => {
@@ -210,20 +200,19 @@ describe("HttpTriageProvider", () => {
       );
 
       const provider = makeProvider({ timeout: 5 });
-      const result = await provider.triage(makeMessage("test"), "Classify.");
+      const result = await provider.classify("test", "Classify.");
 
-      expect(result.action).toBe("escalate");
+      expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
     });
 
-    it("returns escalate when response has no content", async () => {
+    it("returns needs-reasoning when response has no content", async () => {
       mockFetchResponse({ choices: [] });
 
       const provider = makeProvider();
-      const result = await provider.triage(makeMessage("test"), "Classify.");
+      const result = await provider.classify("test", "Classify.");
 
-      // parseTriageResponse("") returns escalate with confidence 0
-      expect(result.action).toBe("escalate");
+      expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
     });
   });
@@ -234,14 +223,14 @@ describe("HttpTriageProvider", () => {
         choices: [
           {
             message: {
-              content: '{"action":"escalate","confidence":0.5}',
+              content: '{"classification":"needs-reasoning","confidence":0.5}',
             },
           },
         ],
       });
 
       const provider = makeProvider();
-      await provider.triage(makeMessage("test"), "Classify.");
+      await provider.classify("test", "Classify.");
 
       const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
@@ -254,14 +243,14 @@ describe("HttpTriageProvider", () => {
         choices: [
           {
             message: {
-              content: '{"action":"escalate","confidence":0.5}',
+              content: '{"classification":"needs-reasoning","confidence":0.5}',
             },
           },
         ],
       });
 
       const provider = makeProvider({ maxTokens: 128 });
-      await provider.triage(makeMessage("test"), "Classify.");
+      await provider.classify("test", "Classify.");
 
       const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];

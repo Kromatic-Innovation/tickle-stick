@@ -1,49 +1,55 @@
-export interface InboundMessage {
+/** A work item produced by a Tier 0 script or external source. */
+export interface WorkItem {
   id: string;
-  channel: string;
-  from: string;
-  subject?: string;
-  body: string;
-  timestamp: Date;
+  source: string;
+  type: string;
+  summary: string;
+  body?: string;
   metadata?: Record<string, unknown>;
+  timestamp: Date;
 }
 
-export type TierAction = "deflect" | "escalate" | "human" | "passthrough";
+/** Classification result from Tier 1. */
+export interface ClassifiedItem extends WorkItem {
+  classification: "routine" | "urgent" | "needs-reasoning" | "human";
+  confidence: number;
+  tier1Response?: string;
+}
 
-export interface TierResult {
-  tier: 0 | 1 | 2 | 3;
-  action: TierAction;
-  response?: string;
-  confidence?: number;
+/** Result of processing a batch of work items through the pipeline. */
+export interface PipelineResult {
+  pipeline: string;
+  tier0Items: number;
+  tier1Classified: number;
+  tier2Escalated: number;
+  tier3Human: number;
   costEstimate: number;
   latencyMs: number;
-  metadata?: Record<string, unknown>;
+  routineReport?: string;
+  reasoningReport?: string;
+  humanItems?: ClassifiedItem[];
 }
 
-export interface TriageDecision {
-  action: "deflect" | "escalate" | "human";
+/** Raw classification from a model provider. */
+export interface ClassificationResult {
+  classification: "routine" | "urgent" | "needs-reasoning" | "human";
   response?: string;
   confidence: number;
   tokenUsage?: { input: number; output: number };
 }
 
+/** Provider for Tier 1 classification. Host injects implementation. */
 export interface TriageProvider {
   readonly name: string;
-  triage(
-    message: InboundMessage,
-    systemPrompt: string,
-  ): Promise<TriageDecision>;
+  classify(text: string, systemPrompt: string): Promise<ClassificationResult>;
 }
 
-/** Storage adapter for persisting triage events. Host provides implementation. */
+/** Storage adapter for persisting pipeline events. Host provides implementation. */
 export interface StorageAdapter {
-  /** Persist a single triage event. */
   writeEvent(
     event: import("./telemetry/logger.js").TelemetryEvent,
   ): void | Promise<void>;
-  /** Return total spend since the given ISO timestamp. */
   getSpendSince(since: string): number | Promise<number>;
-  /** Delete events older than the given ISO timestamp. Returns count deleted. */
   prune(before: string): number | Promise<number>;
 }
 
@@ -60,7 +66,7 @@ export interface BudgetAlert {
 /** Callback for delivering budget alerts. Host decides channel/mechanism. */
 export type AlertSink = (alert: BudgetAlert) => void | Promise<void>;
 
-/** Snapshot of current budget state, returned by getBudgetStatus(). */
+/** Snapshot of current budget state. */
 export interface BudgetStatus {
   dailySpend: number;
   weeklySpend: number;
