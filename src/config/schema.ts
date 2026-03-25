@@ -31,11 +31,27 @@ const telemetrySchema = z.object({
   includeMessagePreview: z.boolean().default(false),
 });
 
+const budgetAlertSchema = z.object({
+  at: z.union([z.string(), z.number()]),
+});
+
+const budgetSchema = z.object({
+  maxDailySpend: z.number().positive().optional(),
+  maxWeeklySpend: z.number().positive().optional(),
+  alerts: z.array(budgetAlertSchema).default([]),
+  retentionDays: z.number().positive().default(30),
+});
+
 export const tickleStickConfigSchema = z.object({
   tickleStick: z.object({
     tier0: tier0Schema.default({ patterns: [], keywords: [] }),
     tier1: tier1Schema.optional(),
-    telemetry: telemetrySchema.default({}),
+    telemetry: telemetrySchema.default({
+      enabled: true,
+      format: "json",
+      includeMessagePreview: false,
+    }),
+    budget: budgetSchema.optional(),
   }),
 });
 
@@ -45,3 +61,5 @@ export type Tier1Config = z.infer<typeof tier1Schema>;
 export type TelemetryConfig = z.infer<typeof telemetrySchema>;
 export type PatternRule = z.infer<typeof patternRuleSchema>;
 export type KeywordGroup = z.infer<typeof keywordGroupSchema>;
+export type BudgetConfig = z.infer<typeof budgetSchema>;
+export type BudgetAlertConfig = z.infer<typeof budgetAlertSchema>;

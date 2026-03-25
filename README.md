@@ -175,6 +175,104 @@ Pass it when constructing the interceptor:
 const interceptor = new Interceptor({ config, triageProvider: myProvider });
 ```
 
+## Budget & Alerts
+
+Cap Tier 1 spend and get notified when thresholds are crossed. Add a
+`budget` section to your config:
+
+```yaml
+tickleStick:
+  # ... tier0, tier1, telemetry ...
+  budget:
+    maxDailySpend: 1.00 # USD, optional
+    maxWeeklySpend: 5.00 # USD, optional
+    alerts:
+      - at: "80%" # percentage of daily/weekly limit
+      - at: 0.50 # absolute USD
+    retentionDays: 30 # auto-prune events older than this
+```
+
+When a budget cap is reached, Tier 1 (model triage) is automatically
+disabled — messages still go through Tier 0 (free deterministic matching)
+but the model is not called.
+
+### Storage Adapter
+
+Budget tracking requires a **storage adapter** to persist triage events
+and query spend totals. If no storage adapter is provided, events are not
+persisted and budget enforcement is disabled.
+
+Implement the `StorageAdapter` interface using whatever database your host
+already has:
+
+```typescript
+import type { StorageAdapter } from "tickle-stick";
+
+const storage: StorageAdapter = {
+  writeEvent(event) {
+    // INSERT event into your database
+    db.run("INSERT INTO triage_events ...", event);
+  },
+  getSpendSince(since) {
+    // SUM(cost_estimate) WHERE timestamp >= since
+    return db.get("SELECT SUM(cost_estimate) ...", since);
+  },
+  prune(before) {
+    // DELETE WHERE timestamp < before
+    return db.run("DELETE FROM triage_events WHERE timestamp < ?", before);
+  },
+};
+```
+
+### Alert Sink
+
+Provide an `AlertSink` callback to receive budget alerts. The host
+decides how to deliver them (messaging channel, email, webhook, etc.):
+
+```typescript
+import type { AlertSink, BudgetAlert } from "tickle-stick";
+
+const alertSink: AlertSink = (alert: BudgetAlert) => {
+  // alert.type: "threshold" | "cap"
+  // alert.level: "daily" | "weekly"
+  // alert.message: human-readable string
+  // alert.currentSpend, alert.limit, alert.percentage
+  sendToMyChannel(alert.message);
+};
+```
+
+### Wiring It Together
+
+```typescript
+const interceptor = new Interceptor({
+  config,
+  triageProvider: myProvider,
+  storage, // optional — enables budget tracking
+  alertSink, // optional — enables alert notifications
+  timezone: "America/New_York", // optional, default "UTC"
+});
+
+// Prune old events at startup
+await interceptor.pruneBudgetEvents();
+```
+
+### Budget Status API
+
+Query current spend for dashboards or `/budget` commands:
+
+```typescript
+const status = await interceptor.getBudgetStatus();
+if (status) {
+  console.log(`Today: $${status.dailySpend.toFixed(2)}`);
+  console.log(`This week: $${status.weeklySpend.toFixed(2)}`);
+  console.log(
+    `Daily limit: ${status.maxDailySpend ? `$${status.maxDailySpend.toFixed(2)}` : "none"}`,
+  );
+  console.log(`Exceeded: ${status.exceeded}`);
+}
+// Returns null if no budget section is configured.
+```
+
 ## Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the full module map
