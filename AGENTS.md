@@ -1,5 +1,10 @@
 # Tickle-Stick — Agent Policy
 
+## GitHub
+
+- **Owner:** Kromatic-Innovation
+- **Repo:** tickle-stick
+
 ## Project overview
 
 Tickle-stick is an opinionated cost-hierarchy extension for agentic workflows.
