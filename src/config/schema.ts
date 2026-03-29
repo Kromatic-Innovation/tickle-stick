@@ -21,7 +21,7 @@ const tier3Schema = z.object({
 });
 
 const pipelineSchema = z.object({
-  tier0: tier0Schema,
+  tier0: tier0Schema.optional(),
   tier1: tier1Schema.optional(),
   tier2: tier2Schema.optional(),
   tier3: tier3Schema.optional(),

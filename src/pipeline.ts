@@ -87,13 +87,18 @@ export class Pipeline {
       latencyMs: 0,
     };
 
-    // --- Tier 0: Run script ---
-    const items = await runScript(
-      this.config.tier0.command,
-      this.config.tier0.args,
-      this.config.tier0.timeout,
-      this.config.tier0.cwd,
-    );
+    // --- Tier 0: Run script (if configured) ---
+    let items: WorkItem[];
+    if (this.config.tier0) {
+      items = await runScript(
+        this.config.tier0.command,
+        this.config.tier0.args,
+        this.config.tier0.timeout,
+        this.config.tier0.cwd,
+      );
+    } else {
+      items = [];
+    }
     result.tier0Items = items.length;
 
     this.emit({
