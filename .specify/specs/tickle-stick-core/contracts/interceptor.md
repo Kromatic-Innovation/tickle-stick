@@ -1,62 +1,65 @@
-# Interceptor Pipeline Contract
+# Pipeline Contract
 
 ## Purpose
 
-The interceptor orchestrates sequential message routing through the 4-tier
-cost hierarchy. It is the single entry point for all inbound messages.
+The Pipeline orchestrates sequential execution of configurable stages.
+It is the single entry point for processing work items through the cost hierarchy.
 
 ## Interface
 
 ```typescript
-interface InterceptorConfig {
-  tiers: {
-    tier0: Tier0Config;
-    tier1: Tier1Config;
-    tier3: Tier3Config;
-  };
-  telemetry: TelemetryConfig;
-  providers: ProvidersConfig;
+interface PipelineOptions {
+  name: string;
+  config: PipelineConfigEntry; // { stages: StageConfig[] }
+  telemetry?: TelemetryConfig;
+  triageProvider?: TriageProvider; // for cheap model stages
+  stageCallbacks?: Record<string, StageCallback>; // for expensive + callback stages
+  onStageComplete?: (name: string, result: StageResult) => void;
+  logSink?: LogSink;
+  storage?: StorageAdapter;
+  alertSink?: AlertSink;
+  budgetConfig?: BudgetConfig;
+  timezone?: string;
 }
 
-interface Interceptor {
-  /**
-   * Process an inbound message through the tier pipeline.
-   * Returns the result from whichever tier handled the message.
-   */
-  process(message: InboundMessage): Promise<TierResult>;
+interface Pipeline {
+  run(): Promise<PipelineResult>;
 }
 ```
 
 ## Behavior
 
-1. Receive `InboundMessage`
-2. Run Tier 0 (deterministic). If match → return `TierResult` with `tier: 0`
-3. Run Tier 1 (cheap triage). Based on decision:
-   - `"deflect"` → return `TierResult` with `tier: 1`
-   - `"human"` → run Tier 3, return `TierResult` with `tier: 3`
-   - `"escalate"` → return `TierResult` with `tier: 2, action: "passthrough"`
-4. Emit telemetry event for every processed message
+1. Iterate through `config.stages` in order
+2. For each stage, resolve input items via `input` filter
+3. Execute based on `type`:
+   - `script` → run command, parse JSON stdout as WorkItem[]
+   - `model` + `cheap` → classify each item via TriageProvider
+   - `model` + `expensive` → call stageCallbacks[name] with items + interpolated prompt
+   - `callback` → call stageCallbacks[name] with items
+4. Run `postHook` if configured (stage output piped via stdin)
+5. Emit telemetry event, record StageResult
+6. Notify onStageComplete
 
 ## Error contract
 
-- Tier 0 error → log warning, continue to Tier 1
-- Tier 1 error → log warning, fall through to Tier 2 (passthrough)
-- Tier 3 error → log error, return result with error metadata
-- Never throw from `process()` — always return a `TierResult`
+- Script error → returns [], may early-exit if first stage
+- Classification error → item escalated to "needs-reasoning"
+- Stage callback error → caught, pipeline continues
+- Post-hook error → logged, does not fail stage
+- Never throw from `run()` — always return a `PipelineResult`
 
 ## Telemetry event
 
-Every `process()` call emits a structured log entry:
+Every stage emits a structured log entry:
 
 ```json
 {
-  "event": "tickle_stick.process",
-  "messageId": "...",
-  "channel": "email",
+  "event": "tickle_stick.pipeline",
+  "pipeline": "daily-briefing",
   "tier": 0,
-  "action": "deflect",
-  "latencyMs": 3,
+  "action": "found",
+  "latencyMs": 45,
   "costEstimate": 0,
-  "timestamp": "2026-03-19T..."
+  "timestamp": "2026-03-30T..."
 }
 ```

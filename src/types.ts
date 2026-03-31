@@ -1,4 +1,4 @@
-/** A work item produced by a Tier 0 script or external source. */
+/** A work item produced by a script stage or external source. */
 export interface WorkItem {
   id: string;
   source: string;
@@ -9,40 +9,51 @@ export interface WorkItem {
   timestamp: Date;
 }
 
-/** Classification result from Tier 1. */
+/** Classification result from a cheap model stage. */
 export interface ClassifiedItem extends WorkItem {
-  classification: "routine" | "urgent" | "needs-reasoning" | "human";
+  classification: "routine" | "urgent" | "needs-reasoning";
   confidence: number;
   tier1Response?: string;
 }
 
-/** Result of processing a batch of work items through the pipeline. */
-export interface PipelineResult {
-  pipeline: string;
-  tier0Items: number;
-  tier1Classified: number;
-  tier2Escalated: number;
-  tier3Human: number;
+/** Output from a single pipeline stage. */
+export interface StageResult {
+  name: string;
+  type: "script" | "model" | "callback";
+  items: WorkItem[] | ClassifiedItem[];
+  output?: string;
   costEstimate: number;
   latencyMs: number;
-  routineReport?: string;
-  reasoningReport?: string;
-  humanItems?: ClassifiedItem[];
+}
+
+/** Result of processing work items through the pipeline. */
+export interface PipelineResult {
+  pipeline: string;
+  stageResults: StageResult[];
+  totalItems: number;
+  costEstimate: number;
+  latencyMs: number;
 }
 
 /** Raw classification from a model provider. */
 export interface ClassificationResult {
-  classification: "routine" | "urgent" | "needs-reasoning" | "human";
+  classification: "routine" | "urgent" | "needs-reasoning";
   response?: string;
   confidence: number;
   tokenUsage?: { input: number; output: number };
 }
 
-/** Provider for Tier 1 classification. Host injects implementation. */
+/** Provider for cheap model classification. Host injects implementation. */
 export interface TriageProvider {
   readonly name: string;
   classify(text: string, systemPrompt: string): Promise<ClassificationResult>;
 }
+
+/** Callback for expensive model or callback stages. */
+export type StageCallback = (
+  items: ClassifiedItem[],
+  prompt: string,
+) => Promise<string>;
 
 /** Storage adapter for persisting pipeline events. Host provides implementation. */
 export interface StorageAdapter {

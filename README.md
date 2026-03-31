@@ -16,34 +16,36 @@ Every scheduled task — email check, calendar sync, dependabot alerts — trigg
 a full agent loop at **~$0.15 per invocation**. That's $216/month just for
 email checks. Most of those tasks don't need intelligence.
 
-## The Solution: 4-Tier Task Pipeline
+## The Solution: Stage-Based Pipelines
 
 Run cheap scripts first. Classify with a cheap model. Only invoke expensive
-reasoning when items actually need it.
+reasoning when items actually need it. Apply side effects at each step.
 
 ```
 Scheduled Task (cron trigger from host)
        │
-  ┌────▼────┐
-  │ Tier 0  │  Scripts — shell/Python, run by library
-  │  FREE   │  Fetch raw data → WorkItem[] (JSON stdout)
-  │  <50ms  │  Empty output = pipeline stops here ($0)
-  └────┬────┘
+  ┌────▼─────┐
+  │  Script   │  Shell/Python — fetch raw data
+  │   FREE    │  Output: WorkItem[] (JSON stdout)
+  │   <50ms   │  Empty = pipeline stops here ($0)
+  └────┬──────┘
        │ items found
-  ┌────▼────┐
-  │ Tier 1  │  Cheap model — Haiku / nano / local
-  │ ~$0.001 │  Classify: routine / urgent / needs-reasoning / human
-  └────┬────┘
-       │ items needing reasoning
-  ┌────▼────┐
-  │ Tier 2  │  Host callback — full agent / model
-  │ ~$0.05+ │  Reason, synthesize, draft responses
-  └────┬────┘
-       │ items needing human
-  ┌────▼────┐
-  │ Tier 3  │  Host callback — human escalation
-  │  FREE   │  Routes to Slack/WhatsApp/email
-  └─────────┘
+  ┌────▼─────┐
+  │  Model   │  Cheap model — classify items
+  │  (cheap)  │  routine / urgent / needs-reasoning
+  │  ~$0.001  │  Post-hook: apply labels immediately
+  └────┬──────┘
+       │ filtered items
+  ┌────▼─────┐
+  │  Model   │  Expensive model — host callback
+  │(expensive)│  Reason, synthesize, draft responses
+  │  ~$0.05+  │  Post-hook: create drafts, apply labels
+  └────┬──────┘
+       │
+  ┌────▼─────┐
+  │ Callback  │  Host-provided function
+  │   FREE    │  Deliver, label, escalate — host decides
+  └───────────┘
 ```
 
 ## Cost Comparison
@@ -66,23 +68,36 @@ Create `tickle-stick.yaml`:
 tickleStick:
   pipelines:
     email-check:
-      tier0:
-        command: "python3"
-        args: ["scripts/check-email.py"]
-        timeout: 30000
-      tier1:
-        systemPrompt: |
-          Classify this item as JSON:
-          {"classification": "routine"|"urgent"|"needs-reasoning"|"human",
-           "response": "one-line summary", "confidence": 0.0-1.0}
-        confidenceThreshold: 0.7
-      tier2:
-        prompt: |
-          Here are items that need reasoning:
-          {{items}}
-          Synthesize a response.
-      tier3:
-        route: "main"
+      stages:
+        - name: gather
+          type: script
+          command: "python3"
+          args: ["scripts/check-email.py"]
+          timeout: 30000
+
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: |
+            Classify this item as JSON:
+            {"classification": "routine"|"urgent"|"needs-reasoning",
+             "response": "one-line summary", "confidence": 0.0-1.0}
+          confidenceThreshold: 0.7
+          postHook:
+            command: "python3"
+            args: ["scripts/apply-labels.py"]
+
+        - name: reason
+          type: model
+          provider: expensive
+          prompt: |
+            Here are items that need reasoning:
+            {{items}}
+            Synthesize a response.
+          input: "classified:needs-reasoning,classified:urgent"
+
+        - name: deliver
+          type: callback
 ```
 
 Use it:
@@ -94,7 +109,7 @@ import type { TriageProvider } from "tickle-stick";
 const config = loadConfig();
 const pipelineConfig = config.tickleStick.pipelines["email-check"];
 
-// Host provides a TriageProvider for Tier 1 classification
+// Host provides a TriageProvider for cheap model stages
 const myProvider: TriageProvider = {
   name: "haiku",
   async classify(text, systemPrompt) {
@@ -107,25 +122,28 @@ const pipeline = new Pipeline({
   name: "email-check",
   config: pipelineConfig,
   triageProvider: myProvider,
-  onTier2: async (items, prompt) => {
-    // Call your expensive model here
-    return await callYourReasoningModel(prompt);
-  },
-  onTier3: async (items) => {
-    // Send to Slack, WhatsApp, etc.
-    await sendToChannel(items.map((i) => i.summary).join("\n"));
+  stageCallbacks: {
+    reason: async (items, prompt) => {
+      // Call your expensive model here
+      return await callYourReasoningModel(prompt);
+    },
+    deliver: async (items) => {
+      // Send to Slack, WhatsApp, etc.
+      await sendToChannel(items.map((i) => i.summary).join("\n"));
+      return "";
+    },
   },
 });
 
 const result = await pipeline.run();
 console.log(
-  `Items: ${result.tier0Items}, Cost: $${result.costEstimate.toFixed(4)}`,
+  `Items: ${result.totalItems}, Cost: $${result.costEstimate.toFixed(4)}`,
 );
 ```
 
-## Tier 0 Scripts
+## Script Stages
 
-Tier 0 scripts are shell commands that output JSON `WorkItem[]` to stdout:
+Script stages are shell commands that output JSON `WorkItem[]` to stdout:
 
 ```python
 #!/usr/bin/env python3
@@ -145,12 +163,12 @@ items = [
 json.dump(items, sys.stdout)
 ```
 
-If the script outputs `[]` or fails, the pipeline stops at Tier 0 with $0 cost.
+If the script outputs `[]` or fails, the pipeline stops at the first stage with $0 cost.
 
 ## Provider Injection
 
 Tickle-stick does **not** manage model providers. The host passes in a
-`TriageProvider` implementation:
+`TriageProvider` implementation for cheap model stages:
 
 ```typescript
 import type { TriageProvider } from "tickle-stick";
@@ -177,9 +195,36 @@ const provider = new HttpTriageProvider({
 });
 ```
 
+## Post-Hooks
+
+Any stage can have a `postHook` — a script that runs after the stage completes.
+The stage output is piped to stdin as JSON. Use post-hooks for side effects:
+
+```yaml
+- name: classify
+  type: model
+  provider: cheap
+  systemPrompt: "..."
+  postHook:
+    command: "python3"
+    args: ["scripts/apply-spam-labels.py"]
+    timeout: 15000
+```
+
+Post-hook errors are logged but don't fail the pipeline.
+
+## Input Filters
+
+Control which items a stage sees with the `input` field:
+
+- `all` — everything from all previous stages
+- `classified:needs-reasoning` — only items classified as needs-reasoning
+- `classified:urgent,classified:needs-reasoning` — comma-separated union
+- _(omitted)_ — all items from previous stages
+
 ## Budget & Alerts
 
-Cap Tier 1 spend and get notified when thresholds are crossed:
+Cap cheap model spend and get notified when thresholds are crossed:
 
 ```yaml
 tickleStick:
@@ -192,8 +237,8 @@ tickleStick:
     retentionDays: 30
 ```
 
-When a budget cap is reached, Tier 1 is skipped — all items go directly to
-Tier 2 (host reasoning).
+When a budget cap is reached, cheap model stages are skipped — all items pass
+through to downstream stages.
 
 ### Storage Adapter
 
@@ -232,7 +277,7 @@ const pipeline = new Pipeline({
   name: "email-check",
   config: pipelineConfig,
   triageProvider: myProvider,
-  onTier2: reasoningCallback,
+  stageCallbacks: { reason: reasoningCallback },
   storage,
   alertSink,
   budgetConfig: config.tickleStick.budget,
@@ -255,13 +300,13 @@ if (status) {
 
 ## Host Compatibility
 
-Tickle-stick works with any host that provides two callbacks:
+Tickle-stick works with any host that provides stage callbacks:
 
-| Host     | Tier 2 (Reasoning)       | Tier 3 (Escalation)         |
-| -------- | ------------------------ | --------------------------- |
-| NanoClaw | Spawns agent container   | Sends to channel (WA/Slack) |
-| OpenClaw | Calls model API directly | Queues to delivery system   |
-| Custom   | Your reasoning logic     | Your escalation logic       |
+| Host     | Expensive Model Stage        | Callback Stage              |
+| -------- | ---------------------------- | --------------------------- |
+| NanoClaw | Direct API call or container | Sends to channel (WA/Slack) |
+| OpenClaw | Calls model API directly     | Queues to delivery system   |
+| Custom   | Your reasoning logic         | Your delivery logic         |
 
 ## License
 

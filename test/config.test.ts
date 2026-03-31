@@ -13,26 +13,38 @@ describe("Config Schema", () => {
     expect(result.tickleStick.telemetry.enabled).toBe(true);
   });
 
-  it("validates a config with pipelines", () => {
+  it("validates a config with stages-based pipeline", () => {
     const result = tickleStickConfigSchema.parse({
       tickleStick: {
         pipelines: {
           "daily-briefing": {
-            tier0: {
-              command: "python3",
-              args: ["scripts/fetch-daily.py"],
-              timeout: 30000,
-            },
-            tier1: {
-              systemPrompt: "Classify this.",
-              confidenceThreshold: 0.8,
-            },
-            tier2: {
-              prompt: "Synthesize: {{items}}",
-            },
-            tier3: {
-              route: "main",
-            },
+            stages: [
+              {
+                name: "gather",
+                type: "script",
+                command: "python3",
+                args: ["scripts/fetch-daily.py"],
+                timeout: 30000,
+              },
+              {
+                name: "classify",
+                type: "model",
+                provider: "cheap",
+                systemPrompt: "Classify this.",
+                confidenceThreshold: 0.8,
+              },
+              {
+                name: "reason",
+                type: "model",
+                provider: "expensive",
+                prompt: "Synthesize: {{items}}",
+                input: "classified:needs-reasoning",
+              },
+              {
+                name: "deliver",
+                type: "callback",
+              },
+            ],
           },
         },
         telemetry: {
@@ -49,9 +61,11 @@ describe("Config Schema", () => {
     });
 
     const pipeline = result.tickleStick.pipelines["daily-briefing"];
-    expect(pipeline.tier1!.confidenceThreshold).toBe(0.8);
-    expect(pipeline.tier0.command).toBe("python3");
-    expect(pipeline.tier2!.prompt).toContain("{{items}}");
+    expect(pipeline.stages).toHaveLength(4);
+    expect(pipeline.stages[0].command).toBe("python3");
+    expect(pipeline.stages[1].confidenceThreshold).toBe(0.8);
+    expect(pipeline.stages[2].prompt).toContain("{{items}}");
+    expect(pipeline.stages[3].type).toBe("callback");
     expect(result.tickleStick.budget!.maxDailySpend).toBe(1.0);
   });
 
@@ -60,16 +74,27 @@ describe("Config Schema", () => {
       tickleStick: {
         pipelines: {
           test: {
-            tier0: { command: "echo", args: ["[]"] },
-            tier1: { systemPrompt: "Test" },
+            stages: [
+              {
+                name: "gather",
+                type: "script",
+                command: "echo",
+                args: ["[]"],
+              },
+              {
+                name: "classify",
+                type: "model",
+                provider: "cheap",
+                systemPrompt: "Test",
+              },
+            ],
           },
         },
       },
     });
 
     const pipeline = result.tickleStick.pipelines["test"];
-    expect(pipeline.tier1!.confidenceThreshold).toBe(0.7);
-    expect(pipeline.tier0.timeout).toBe(30000);
+    expect(pipeline.stages[0].timeout).toBe(30000);
     expect(result.tickleStick.telemetry.format).toBe("json");
   });
 
@@ -79,11 +104,15 @@ describe("Config Schema", () => {
         tickleStick: {
           pipelines: {
             test: {
-              tier0: { command: "echo" },
-              tier1: {
-                systemPrompt: "test",
-                confidenceThreshold: 1.5,
-              },
+              stages: [
+                {
+                  name: "classify",
+                  type: "model",
+                  provider: "cheap",
+                  systemPrompt: "test",
+                  confidenceThreshold: 1.5,
+                },
+              ],
             },
           },
         },
@@ -91,18 +120,116 @@ describe("Config Schema", () => {
     ).toThrow();
   });
 
-  it("requires tier0 command in pipeline", () => {
+  it("requires at least one stage in pipeline", () => {
     expect(() =>
       tickleStickConfigSchema.parse({
         tickleStick: {
           pipelines: {
             test: {
-              tier0: {},
+              stages: [],
             },
           },
         },
       }),
     ).toThrow();
+  });
+
+  it("validates stage types", () => {
+    expect(() =>
+      tickleStickConfigSchema.parse({
+        tickleStick: {
+          pipelines: {
+            test: {
+              stages: [
+                {
+                  name: "bad",
+                  type: "invalid",
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("validates post-hook config", () => {
+    const result = tickleStickConfigSchema.parse({
+      tickleStick: {
+        pipelines: {
+          test: {
+            stages: [
+              {
+                name: "classify",
+                type: "model",
+                provider: "cheap",
+                systemPrompt: "Test",
+                postHook: {
+                  command: "python3",
+                  args: ["apply-labels.py"],
+                  timeout: 10000,
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const hook = result.tickleStick.pipelines["test"].stages[0].postHook;
+    expect(hook!.command).toBe("python3");
+    expect(hook!.args).toEqual(["apply-labels.py"]);
+    expect(hook!.timeout).toBe(10000);
+  });
+
+  it("applies post-hook defaults", () => {
+    const result = tickleStickConfigSchema.parse({
+      tickleStick: {
+        pipelines: {
+          test: {
+            stages: [
+              {
+                name: "classify",
+                type: "model",
+                provider: "cheap",
+                systemPrompt: "Test",
+                postHook: {
+                  command: "python3",
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const hook = result.tickleStick.pipelines["test"].stages[0].postHook;
+    expect(hook!.args).toEqual([]);
+    expect(hook!.timeout).toBe(15000);
+  });
+
+  it("validates input filter field", () => {
+    const result = tickleStickConfigSchema.parse({
+      tickleStick: {
+        pipelines: {
+          test: {
+            stages: [
+              {
+                name: "reason",
+                type: "model",
+                provider: "expensive",
+                prompt: "Analyze: {{items}}",
+                input: "classified:needs-reasoning,classified:urgent",
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    expect(result.tickleStick.pipelines["test"].stages[0].input).toBe(
+      "classified:needs-reasoning,classified:urgent",
+    );
   });
 });
 
@@ -117,19 +244,21 @@ describe("Config Loader", () => {
     process.env = originalEnv;
   });
 
-  it("parses YAML string with pipeline config", () => {
+  it("parses YAML string with stages config", () => {
     const yaml = `
 tickleStick:
   pipelines:
     email-check:
-      tier0:
-        command: "python3"
-        args: ["check-email.py"]
+      stages:
+        - name: gather
+          type: script
+          command: "python3"
+          args: ["check-email.py"]
 `;
     const config = loadConfigFromString(yaml);
     const pipeline = config.tickleStick.pipelines["email-check"];
-    expect(pipeline.tier0.command).toBe("python3");
-    expect(pipeline.tier0.args).toEqual(["check-email.py"]);
+    expect(pipeline.stages[0].command).toBe("python3");
+    expect(pipeline.stages[0].args).toEqual(["check-email.py"]);
   });
 
   it("interpolates environment variables", () => {
@@ -139,12 +268,14 @@ tickleStick:
 tickleStick:
   pipelines:
     test:
-      tier0:
-        command: "python3"
-        args: ["\${SCRIPT_PATH}"]
+      stages:
+        - name: gather
+          type: script
+          command: "python3"
+          args: ["\${SCRIPT_PATH}"]
 `;
     const config = loadConfigFromString(yaml);
-    expect(config.tickleStick.pipelines["test"].tier0.args[0]).toBe(
+    expect(config.tickleStick.pipelines["test"].stages[0].args[0]).toBe(
       "custom/script.py",
     );
   });
@@ -156,12 +287,13 @@ tickleStick:
 tickleStick:
   pipelines:
     test:
-      tier0:
-        command: "\${NONEXISTENT_VAR}"
+      stages:
+        - name: gather
+          type: script
+          command: "\${NONEXISTENT_VAR}"
 `;
-    // empty string command will still parse (schema allows any string)
     const config = loadConfigFromString(yaml);
-    expect(config.tickleStick.pipelines["test"].tier0.command).toBe("");
+    expect(config.tickleStick.pipelines["test"].stages[0].command).toBe("");
   });
 });
 

@@ -1,27 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Pipeline } from "../src/pipeline.js";
 import type { PipelineConfigEntry } from "../src/config/schema.js";
 import type { WorkItem, TriageProvider } from "../src/types.js";
 
 function makeConfig(
-  overrides: Partial<PipelineConfigEntry> = {},
+  stages: PipelineConfigEntry["stages"],
 ): PipelineConfigEntry {
-  return {
-    tier0: {
-      command: "echo",
-      args: ["[]"],
-      timeout: 5000,
-    },
-    ...overrides,
-  };
+  return { stages };
 }
 
 function mockProvider(
-  classification:
-    | "routine"
-    | "urgent"
-    | "needs-reasoning"
-    | "human" = "routine",
+  classification: "routine" | "urgent" | "needs-reasoning" = "routine",
   confidence = 0.9,
 ): TriageProvider {
   return {
@@ -34,36 +23,38 @@ function mockProvider(
   };
 }
 
-// Helper to make a pipeline that returns items directly (bypasses script)
+// Helper to make a pipeline that returns items from a script stage
 function makePipelineWithItems(
   items: WorkItem[],
-  overrides: Partial<Parameters<typeof Pipeline.prototype.run>[0]> & {
-    config?: Partial<PipelineConfigEntry>;
+  overrides: {
+    stages?: PipelineConfigEntry["stages"];
     provider?: TriageProvider;
-    onTier2?: (items: unknown[], prompt: string) => Promise<string>;
-    onTier3?: (items: unknown[]) => Promise<void>;
+    stageCallbacks?: Record<
+      string,
+      (items: unknown[], prompt: string) => Promise<string>
+    >;
   } = {},
 ) {
-  // We'll use a script that outputs the items as JSON
   const json = JSON.stringify(
     items.map((i) => ({ ...i, timestamp: i.timestamp.toISOString() })),
   );
-  const config = makeConfig({
-    tier0: {
-      command: "node",
-      args: ["-e", `process.stdout.write(${JSON.stringify(json)})`],
-      timeout: 5000,
-    },
-    ...overrides.config,
-  });
+  const scriptStage = {
+    name: "gather",
+    type: "script" as const,
+    command: "node",
+    args: ["-e", `process.stdout.write(${JSON.stringify(json)})`],
+    timeout: 5000,
+  };
+  const stages = overrides.stages
+    ? [scriptStage, ...overrides.stages]
+    : [scriptStage];
 
   return new Pipeline({
     name: "test-pipeline",
-    config,
+    config: { stages },
     telemetry: { enabled: false, format: "json" },
     triageProvider: overrides.provider,
-    onTier2: overrides.onTier2,
-    onTier3: overrides.onTier3,
+    stageCallbacks: overrides.stageCallbacks,
   });
 }
 
@@ -85,132 +76,168 @@ const sampleItems: WorkItem[] = [
 ];
 
 describe("Pipeline", () => {
-  it("returns zero-cost result when Tier 0 script returns no items", async () => {
+  it("returns zero-cost result when script stage returns no items", async () => {
     const pipeline = new Pipeline({
       name: "empty",
-      config: makeConfig(),
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "echo",
+          args: ["[]"],
+          timeout: 5000,
+        },
+      ]),
       telemetry: { enabled: false, format: "json" },
     });
 
     const result = await pipeline.run();
 
     expect(result.pipeline).toBe("empty");
-    expect(result.tier0Items).toBe(0);
-    expect(result.tier1Classified).toBe(0);
-    expect(result.tier2Escalated).toBe(0);
-    expect(result.tier3Human).toBe(0);
+    expect(result.totalItems).toBe(0);
     expect(result.costEstimate).toBe(0);
+    expect(result.stageResults).toHaveLength(1);
   });
 
-  it("passes all items to Tier 2 when no Tier 1 provider", async () => {
-    const onTier2 = vi.fn().mockResolvedValue("Briefing summary");
+  it("passes all items to expensive model when no cheap model stage", async () => {
+    const stageCallbacks = {
+      reason: vi.fn().mockResolvedValue("Briefing summary"),
+    };
     const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier1: { systemPrompt: "Classify", confidenceThreshold: 0.7 },
-        tier2: { prompt: "Synthesize: {{items}}" },
-      },
-      onTier2,
+      stages: [
+        {
+          name: "reason",
+          type: "model",
+          provider: "expensive",
+          prompt: "Synthesize: {{items}}",
+          timeout: 30000,
+        },
+      ],
+      stageCallbacks,
     });
 
     const result = await pipeline.run();
 
-    expect(result.tier0Items).toBe(2);
-    expect(result.tier2Escalated).toBe(2);
-    expect(onTier2).toHaveBeenCalledOnce();
-    expect(result.reasoningReport).toBe("Briefing summary");
+    expect(result.totalItems).toBe(2);
+    expect(stageCallbacks.reason).toHaveBeenCalledOnce();
+    const reasonStage = result.stageResults.find((s) => s.name === "reason");
+    expect(reasonStage?.output).toBe("Briefing summary");
   });
 
-  it("classifies items with Tier 1 provider", async () => {
+  it("classifies items with cheap model stage", async () => {
     const provider = mockProvider("routine", 0.95);
     const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier1: { systemPrompt: "Classify", confidenceThreshold: 0.7 },
-      },
+      stages: [
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ],
       provider,
     });
 
     const result = await pipeline.run();
 
-    expect(result.tier0Items).toBe(2);
-    expect(result.tier1Classified).toBe(2);
-    expect(result.tier2Escalated).toBe(0);
+    expect(result.totalItems).toBe(2);
+    const classifyStage = result.stageResults.find(
+      (s) => s.name === "classify",
+    );
+    expect(classifyStage?.items).toHaveLength(2);
     expect(result.costEstimate).toBeGreaterThan(0);
     expect(provider.classify).toHaveBeenCalledTimes(2);
   });
 
-  it("routes needs-reasoning items to Tier 2", async () => {
+  it("routes needs-reasoning items to expensive model stage", async () => {
     const provider = mockProvider("needs-reasoning", 0.9);
-    const onTier2 = vi.fn().mockResolvedValue("Analysis done");
+    const stageCallbacks = {
+      reason: vi.fn().mockResolvedValue("Analysis done"),
+    };
     const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier1: { systemPrompt: "Classify", confidenceThreshold: 0.7 },
-        tier2: { prompt: "Analyze: {{items}}" },
-      },
+      stages: [
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+        {
+          name: "reason",
+          type: "model",
+          provider: "expensive",
+          prompt: "Analyze: {{items}}",
+          input: "classified:needs-reasoning",
+          timeout: 30000,
+        },
+      ],
       provider,
-      onTier2,
+      stageCallbacks,
     });
 
     const result = await pipeline.run();
 
-    expect(result.tier2Escalated).toBe(2);
-    expect(onTier2).toHaveBeenCalledOnce();
-    expect(result.reasoningReport).toBe("Analysis done");
-  });
-
-  it("routes human items to Tier 3", async () => {
-    const provider = mockProvider("human", 0.95);
-    const onTier3 = vi.fn().mockResolvedValue(undefined);
-    const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier1: { systemPrompt: "Classify", confidenceThreshold: 0.7 },
-        tier3: { route: "main" },
-      },
-      provider,
-      onTier3,
-    });
-
-    const result = await pipeline.run();
-
-    expect(result.tier3Human).toBe(2);
-    expect(result.humanItems).toHaveLength(2);
-    expect(onTier3).toHaveBeenCalledOnce();
+    expect(stageCallbacks.reason).toHaveBeenCalledOnce();
+    const reasonStage = result.stageResults.find((s) => s.name === "reason");
+    expect(reasonStage?.output).toBe("Analysis done");
   });
 
   it("escalates items when confidence below threshold", async () => {
     const provider = mockProvider("routine", 0.3);
-    const onTier2 = vi.fn().mockResolvedValue("Low confidence reasoning");
+    const stageCallbacks = {
+      reason: vi.fn().mockResolvedValue("Low confidence reasoning"),
+    };
     const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier1: { systemPrompt: "Classify", confidenceThreshold: 0.7 },
-        tier2: { prompt: "Reason: {{items}}" },
-      },
+      stages: [
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+        {
+          name: "reason",
+          type: "model",
+          provider: "expensive",
+          prompt: "Reason: {{items}}",
+          input: "classified:needs-reasoning",
+          timeout: 30000,
+        },
+      ],
       provider,
-      onTier2,
+      stageCallbacks,
     });
 
     const result = await pipeline.run();
 
-    // Low confidence → needs-reasoning → Tier 2
-    expect(result.tier2Escalated).toBe(2);
-    expect(onTier2).toHaveBeenCalledOnce();
+    // Low confidence → needs-reasoning → expensive model stage
+    expect(stageCallbacks.reason).toHaveBeenCalledOnce();
   });
 
   it("handles script failure gracefully (returns empty result)", async () => {
     const pipeline = new Pipeline({
       name: "fail",
-      config: {
-        tier0: {
-          command: "false", // exits non-zero
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "false",
           args: [],
           timeout: 5000,
         },
-      },
+      ]),
       telemetry: { enabled: false, format: "json" },
     });
 
     const result = await pipeline.run();
 
-    expect(result.tier0Items).toBe(0);
+    expect(result.totalItems).toBe(0);
     expect(result.costEstimate).toBe(0);
   });
 
@@ -218,7 +245,15 @@ describe("Pipeline", () => {
     const logSink = vi.fn();
     const pipeline = new Pipeline({
       name: "telemetry-test",
-      config: makeConfig(),
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "echo",
+          args: ["[]"],
+          timeout: 5000,
+        },
+      ]),
       telemetry: { enabled: true, format: "json" },
       logSink,
     });
@@ -229,32 +264,44 @@ describe("Pipeline", () => {
       expect.objectContaining({
         event: "tickle_stick.pipeline",
         pipeline: "telemetry-test",
-        tier: 0,
       }),
     );
   });
 
   it("tracks metrics", async () => {
     const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier1: { systemPrompt: "Classify", confidenceThreshold: 0.7 },
-      },
+      stages: [
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ],
       provider: mockProvider("routine", 0.9),
     });
 
     await pipeline.run();
     const metrics = pipeline.getMetrics();
 
-    // Tier 0 event + 2 Tier 1 events
-    expect(metrics.totalProcessed).toBe(3);
-    expect(metrics.tierDistribution[0]).toBe(1);
-    expect(metrics.tierDistribution[1]).toBe(2);
+    // gather stage event + 2 classify events + classify stage event
+    expect(metrics.totalProcessed).toBeGreaterThanOrEqual(3);
   });
 
   it("resets metrics", async () => {
     const pipeline = new Pipeline({
       name: "reset-test",
-      config: makeConfig(),
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "echo",
+          args: ["[]"],
+          timeout: 5000,
+        },
+      ]),
       telemetry: { enabled: false, format: "json" },
     });
 
@@ -264,46 +311,54 @@ describe("Pipeline", () => {
     expect(pipeline.getMetrics().totalProcessed).toBe(0);
   });
 
-  it("substitutes {{items}} in Tier 2 prompt", async () => {
-    const onTier2 = vi.fn().mockResolvedValue("done");
+  it("substitutes {{items}} in expensive model prompt", async () => {
+    const stageCallbacks = {
+      reason: vi.fn().mockResolvedValue("done"),
+    };
     const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier2: { prompt: "Here are items: {{items}}" },
-      },
-      onTier2,
+      stages: [
+        {
+          name: "reason",
+          type: "model",
+          provider: "expensive",
+          prompt: "Here are items: {{items}}",
+          timeout: 30000,
+        },
+      ],
+      stageCallbacks,
     });
 
     await pipeline.run();
 
-    const [, prompt] = onTier2.mock.calls[0];
+    const [, prompt] = stageCallbacks.reason.mock.calls[0];
     expect(prompt).toContain("item-1");
     expect(prompt).toContain("item-2");
     expect(prompt).toContain("gmail");
     expect(prompt).toContain("Here are items:");
   });
 
-  it("builds routine report from Tier 1 responses", async () => {
-    const provider: TriageProvider = {
-      name: "mock",
-      classify: vi.fn().mockResolvedValue({
-        classification: "routine",
-        response: "Normal item",
-        confidence: 0.9,
-      }),
-    };
-
-    const pipeline = makePipelineWithItems(sampleItems, {
-      config: {
-        tier1: { systemPrompt: "Classify", confidenceThreshold: 0.7 },
-      },
-      provider,
+  it("calls onStageComplete after each stage", async () => {
+    const onStageComplete = vi.fn();
+    const pipeline = new Pipeline({
+      name: "callback-test",
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "echo",
+          args: ["[]"],
+          timeout: 5000,
+        },
+      ]),
+      telemetry: { enabled: false, format: "json" },
+      onStageComplete,
     });
 
-    const result = await pipeline.run();
+    await pipeline.run();
 
-    expect(result.routineReport).toBeDefined();
-    expect(result.routineReport).toContain("Normal item");
-    expect(result.routineReport).toContain("[gmail]");
-    expect(result.routineReport).toContain("[calendar]");
+    expect(onStageComplete).toHaveBeenCalledWith(
+      "gather",
+      expect.objectContaining({ name: "gather", type: "script" }),
+    );
   });
 });

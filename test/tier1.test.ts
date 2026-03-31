@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { classifyItem } from "../src/tiers/tier1-triage.js";
 import type { WorkItem, TriageProvider } from "../src/types.js";
-import type { Tier1Config } from "../src/config/schema.js";
 
 function makeItem(summary: string, body?: string): WorkItem {
   return {
@@ -14,7 +13,7 @@ function makeItem(summary: string, body?: string): WorkItem {
   };
 }
 
-const tier1Config: Tier1Config = {
+const stageConfig = {
   systemPrompt: "Classify this item.",
   confidenceThreshold: 0.7,
 };
@@ -41,7 +40,7 @@ describe("Tier 1: Classification", () => {
     });
     const { classified } = await classifyItem(
       makeItem("test"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 
@@ -56,25 +55,11 @@ describe("Tier 1: Classification", () => {
     });
     const { classified } = await classifyItem(
       makeItem("test"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 
     expect(classified.classification).toBe("needs-reasoning");
-  });
-
-  it("returns human when provider says human", async () => {
-    const provider = mockProvider({
-      classification: "human",
-      confidence: 0.95,
-    });
-    const { classified } = await classifyItem(
-      makeItem("test"),
-      tier1Config,
-      provider,
-    );
-
-    expect(classified.classification).toBe("human");
   });
 
   it("overrides to needs-reasoning when confidence is below threshold", async () => {
@@ -84,7 +69,7 @@ describe("Tier 1: Classification", () => {
     });
     const { classified } = await classifyItem(
       makeItem("test"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 
@@ -99,7 +84,7 @@ describe("Tier 1: Classification", () => {
     });
     const { costEstimate } = await classifyItem(
       makeItem("test"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 
@@ -114,7 +99,7 @@ describe("Tier 1: Classification", () => {
     });
     const { costEstimate } = await classifyItem(
       makeItem("test"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 
@@ -125,7 +110,7 @@ describe("Tier 1: Classification", () => {
     const provider = mockProvider();
     const { latencyMs } = await classifyItem(
       makeItem("test"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 
@@ -136,22 +121,22 @@ describe("Tier 1: Classification", () => {
     const provider = mockProvider();
     await classifyItem(
       makeItem("Subject line", "Full body text"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 
     expect(provider.classify).toHaveBeenCalledWith(
-      "Subject line\n\nFull body text",
+      "[type: test]\nSubject line\nFull body text",
       "Classify this item.",
     );
   });
 
   it("sends only summary when no body", async () => {
     const provider = mockProvider();
-    await classifyItem(makeItem("Just a summary"), tier1Config, provider);
+    await classifyItem(makeItem("Just a summary"), stageConfig, provider);
 
     expect(provider.classify).toHaveBeenCalledWith(
-      "Just a summary",
+      "[type: test]\nJust a summary",
       "Classify this item.",
     );
   });
@@ -164,7 +149,7 @@ describe("Tier 1: Classification", () => {
     });
     const { classified } = await classifyItem(
       makeItem("test"),
-      tier1Config,
+      stageConfig,
       provider,
     );
 

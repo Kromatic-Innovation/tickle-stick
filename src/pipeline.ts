@@ -3,14 +3,21 @@ import type {
   BudgetStatus,
   ClassifiedItem,
   PipelineResult,
+  StageCallback,
+  StageResult,
   StorageAdapter,
   TriageProvider,
   WorkItem,
 } from "./types.js";
-import type { PipelineConfigEntry, TelemetryConfig } from "./config/schema.js";
+import type {
+  PipelineConfigEntry,
+  StageConfig,
+  TelemetryConfig,
+} from "./config/schema.js";
 import { BudgetManager } from "./budget/budget-manager.js";
 import { classifyItem } from "./tiers/tier1-triage.js";
 import { runScript } from "./script-runner.js";
+import { runPostHook } from "./post-hook.js";
 import {
   createLogger,
   type LogSink,
@@ -21,16 +28,16 @@ import { MetricsCollector, type TierMetrics } from "./telemetry/metrics.js";
 export interface PipelineOptions {
   /** Pipeline name (used in telemetry and results). */
   name: string;
-  /** Pipeline configuration (tier0, tier1, tier2, tier3). */
+  /** Pipeline configuration (stages array). */
   config: PipelineConfigEntry;
   /** Telemetry configuration. */
   telemetry?: TelemetryConfig;
-  /** Provider for Tier 1 classification. */
+  /** Provider for cheap model stages. */
   triageProvider?: TriageProvider;
-  /** Callback for Tier 2 reasoning. Host provides implementation. */
-  onTier2?: (items: ClassifiedItem[], prompt: string) => Promise<string>;
-  /** Callback for Tier 3 human escalation. Host provides implementation. */
-  onTier3?: (items: ClassifiedItem[]) => Promise<void>;
+  /** Callbacks for expensive model and callback stages, keyed by stage name. */
+  stageCallbacks?: Record<string, StageCallback>;
+  /** Called after each stage completes. */
+  onStageComplete?: (name: string, result: StageResult) => void;
   /** Custom log sink. */
   logSink?: LogSink;
   /** Storage adapter for budget tracking. */
@@ -43,6 +50,89 @@ export interface PipelineOptions {
   timezone?: string;
 }
 
+/** Accumulated state across pipeline stages. */
+interface PipelineContext {
+  /** All work items from script stages. */
+  allItems: WorkItem[];
+  /** All classified items from cheap model stages. */
+  classified: ClassifiedItem[];
+  /** Text outputs from expensive model and callback stages, keyed by stage name. */
+  stageOutputs: Map<string, string>;
+}
+
+function applyInputFilter(
+  filter: string | undefined,
+  context: PipelineContext,
+): (WorkItem | ClassifiedItem)[] {
+  if (!filter || filter === "all") {
+    // Return all items: classified items take precedence over raw items
+    const classifiedIds = new Set(context.classified.map((c) => c.id));
+    const unclassified = context.allItems.filter(
+      (i) => !classifiedIds.has(i.id),
+    );
+    return [...unclassified, ...context.classified];
+  }
+
+  // Filter by classification: "classified:needs-reasoning,classified:urgent"
+  const classifications = filter
+    .split(",")
+    .map((f) => f.trim())
+    .filter((f) => f.startsWith("classified:"))
+    .map((f) => f.slice("classified:".length));
+
+  if (classifications.length > 0) {
+    return context.classified.filter((c) =>
+      classifications.includes(c.classification),
+    );
+  }
+
+  // Unknown filter — return all items
+  return [...context.allItems, ...context.classified];
+}
+
+function interpolatePrompt(
+  template: string,
+  items: (WorkItem | ClassifiedItem)[],
+  context: PipelineContext,
+): string {
+  const itemsJson = JSON.stringify(
+    items.map((c) => ({
+      id: c.id,
+      source: c.source,
+      type: c.type,
+      summary: c.summary,
+      body: c.body,
+      metadata: c.metadata,
+      ...("classification" in c
+        ? { classification: c.classification, confidence: c.confidence }
+        : {}),
+    })),
+    null,
+    2,
+  );
+
+  const allItems = applyInputFilter("all", context);
+  const allItemsJson = JSON.stringify(
+    allItems.map((c) => ({
+      id: c.id,
+      source: c.source,
+      type: c.type,
+      summary: c.summary,
+      body: c.body,
+      metadata: c.metadata,
+      ...("classification" in c
+        ? { classification: c.classification, confidence: c.confidence }
+        : {}),
+    })),
+    null,
+    2,
+  );
+
+  return template
+    .replace("{{items}}", itemsJson)
+    .replace("{{all_items}}", allItemsJson);
+}
+
 export class Pipeline {
   private readonly name: string;
   private readonly config: PipelineConfigEntry;
@@ -50,8 +140,8 @@ export class Pipeline {
   private readonly metrics: MetricsCollector;
   private readonly provider: TriageProvider | null;
   private readonly budgetManager: BudgetManager | null;
-  private readonly onTier2: PipelineOptions["onTier2"];
-  private readonly onTier3: PipelineOptions["onTier3"];
+  private readonly stageCallbacks: Record<string, StageCallback>;
+  private readonly onStageComplete: PipelineOptions["onStageComplete"];
 
   constructor(options: PipelineOptions) {
     this.name = options.name;
@@ -62,8 +152,8 @@ export class Pipeline {
     );
     this.metrics = new MetricsCollector();
     this.provider = options.triageProvider ?? null;
-    this.onTier2 = options.onTier2;
-    this.onTier3 = options.onTier3;
+    this.stageCallbacks = options.stageCallbacks ?? {};
+    this.onStageComplete = options.onStageComplete;
 
     this.budgetManager = options.budgetConfig
       ? new BudgetManager({
@@ -76,164 +166,201 @@ export class Pipeline {
   }
 
   async run(): Promise<PipelineResult> {
-    const start = performance.now();
-    const result: PipelineResult = {
-      pipeline: this.name,
-      tier0Items: 0,
-      tier1Classified: 0,
-      tier2Escalated: 0,
-      tier3Human: 0,
-      costEstimate: 0,
-      latencyMs: 0,
+    const pipelineStart = performance.now();
+    const context: PipelineContext = {
+      allItems: [],
+      classified: [],
+      stageOutputs: new Map(),
     };
+    const stageResults: StageResult[] = [];
+    let totalCost = 0;
 
-    // --- Tier 0: Run script (if configured) ---
-    let items: WorkItem[];
-    if (this.config.tier0) {
-      items = await runScript(
-        this.config.tier0.command,
-        this.config.tier0.args,
-        this.config.tier0.timeout,
-        this.config.tier0.cwd,
-      );
-    } else {
-      items = [];
-    }
-    result.tier0Items = items.length;
-
-    this.emit({
-      pipeline: this.name,
-      tier: 0,
-      action: items.length > 0 ? "found" : "empty",
-      latencyMs: performance.now() - start,
-      costEstimate: 0,
-    });
-
-    if (items.length === 0) {
-      result.latencyMs = performance.now() - start;
-      return result;
-    }
-
-    // --- Tier 1: Classify (if provider available and budget ok) ---
-    let classified: ClassifiedItem[];
-    const budgetOk = !this.budgetManager?.isBudgetExceeded();
-
-    if (this.config.tier1 && this.provider && budgetOk) {
-      classified = [];
-      for (const item of items) {
-        try {
-          const {
-            classified: ci,
-            costEstimate,
-            latencyMs,
-          } = await classifyItem(item, this.config.tier1, this.provider);
-          classified.push(ci);
-          result.costEstimate += costEstimate;
-          result.tier1Classified++;
-
-          this.emit({
-            pipeline: this.name,
-            itemId: ci.id,
-            source: ci.source,
-            tier: 1,
-            action: ci.classification,
-            latencyMs,
-            costEstimate,
-            confidence: ci.confidence,
-          });
-        } catch {
-          // Classification failed → escalate to reasoning
-          classified.push({
-            ...item,
-            classification: "needs-reasoning",
-            confidence: 0,
-          });
-        }
-      }
-    } else {
-      // No Tier 1 → all items go to Tier 2
-      classified = items.map((item) => ({
-        ...item,
-        classification: "needs-reasoning" as const,
-        confidence: 0,
-      }));
-    }
-
-    // Partition by classification
-    const routine = classified.filter((c) => c.classification === "routine");
-    const urgent = classified.filter((c) => c.classification === "urgent");
-    const needsReasoning = classified.filter(
-      (c) => c.classification === "needs-reasoning",
-    );
-    const human = classified.filter((c) => c.classification === "human");
-
-    // Build routine report from Tier 1 responses
-    if (routine.length > 0 || urgent.length > 0) {
-      const summaries = [...routine, ...urgent]
-        .filter((c) => c.tier1Response)
-        .map((c) => `- [${c.source}] ${c.tier1Response}`);
-      if (summaries.length > 0) {
-        result.routineReport = summaries.join("\n");
-      }
-    }
-
-    // --- Tier 2: Reasoning (if items need it and callback provided) ---
-    const tier2Items = [...urgent, ...needsReasoning];
-    if (tier2Items.length > 0 && this.onTier2 && this.config.tier2) {
-      result.tier2Escalated = tier2Items.length;
-      const itemsJson = JSON.stringify(
-        tier2Items.map((c) => ({
-          id: c.id,
-          source: c.source,
-          type: c.type,
-          summary: c.summary,
-          body: c.body,
-          classification: c.classification,
-        })),
-        null,
-        2,
-      );
-      const prompt = this.config.tier2.prompt.replace("{{items}}", itemsJson);
+    for (const stage of this.config.stages) {
+      const stageStart = performance.now();
+      const stageResult: StageResult = {
+        name: stage.name,
+        type: stage.type,
+        items: [],
+        costEstimate: 0,
+        latencyMs: 0,
+      };
 
       try {
-        result.reasoningReport = await this.onTier2(tier2Items, prompt);
+        switch (stage.type) {
+          case "script":
+            await this.runScriptStage(stage, context, stageResult);
+            break;
+          case "model":
+            await this.runModelStage(stage, context, stageResult);
+            break;
+          case "callback":
+            await this.runCallbackStage(stage, context, stageResult);
+            break;
+        }
       } catch {
-        // Reasoning failed — items still logged
+        // Stage errors don't fail the pipeline
       }
+
+      stageResult.latencyMs = performance.now() - stageStart;
+      totalCost += stageResult.costEstimate;
+      stageResults.push(stageResult);
 
       this.emit({
         pipeline: this.name,
-        tier: 2,
-        action: "reasoning",
-        latencyMs: performance.now() - start,
-        costEstimate: 0, // Host tracks container cost separately
+        tier: stageResults.length - 1,
+        action:
+          stage.type === "script"
+            ? context.allItems.length > 0
+              ? "found"
+              : "empty"
+            : stage.name,
+        latencyMs: stageResult.latencyMs,
+        costEstimate: stageResult.costEstimate,
       });
-    }
 
-    // --- Tier 3: Human escalation ---
-    if (human.length > 0) {
-      result.tier3Human = human.length;
-      result.humanItems = human;
-
-      if (this.onTier3) {
+      // Run post-hook if configured
+      if (stage.postHook) {
         try {
-          await this.onTier3(human);
+          const hookInput = stageResult.output
+            ? stageResult.output
+            : JSON.stringify(stageResult.items);
+          await runPostHook(
+            stage.postHook.command,
+            stage.postHook.args,
+            hookInput,
+            stage.postHook.timeout,
+          );
         } catch {
-          // Escalation failed — items still in result
+          // Post-hook errors don't fail the pipeline
         }
       }
 
-      this.emit({
-        pipeline: this.name,
-        tier: 3,
-        action: "human",
-        latencyMs: 0,
-        costEstimate: 0,
-      });
+      this.onStageComplete?.(stage.name, stageResult);
+
+      // Early exit if script stage returned no items and it's the first stage
+      if (
+        stage.type === "script" &&
+        stageResults.length === 1 &&
+        context.allItems.length === 0
+      ) {
+        break;
+      }
     }
 
-    result.latencyMs = performance.now() - start;
-    return result;
+    return {
+      pipeline: this.name,
+      stageResults,
+      totalItems: context.allItems.length,
+      costEstimate: totalCost,
+      latencyMs: performance.now() - pipelineStart,
+    };
+  }
+
+  private async runScriptStage(
+    stage: StageConfig,
+    context: PipelineContext,
+    result: StageResult,
+  ): Promise<void> {
+    if (!stage.command) return;
+    const items = await runScript(
+      stage.command,
+      stage.args,
+      stage.timeout,
+      stage.cwd,
+    );
+    context.allItems.push(...items);
+    result.items = items;
+  }
+
+  private async runModelStage(
+    stage: StageConfig,
+    context: PipelineContext,
+    result: StageResult,
+  ): Promise<void> {
+    const inputItems = applyInputFilter(stage.input, context);
+
+    if (inputItems.length === 0) return;
+
+    if (stage.provider === "cheap") {
+      await this.runCheapModel(stage, inputItems, context, result);
+    } else {
+      await this.runExpensiveModel(stage, inputItems, context, result);
+    }
+  }
+
+  private async runCheapModel(
+    stage: StageConfig,
+    inputItems: (WorkItem | ClassifiedItem)[],
+    context: PipelineContext,
+    result: StageResult,
+  ): Promise<void> {
+    const budgetOk = !this.budgetManager?.isBudgetExceeded();
+    if (!this.provider || !budgetOk || !stage.systemPrompt) return;
+
+    const classified: ClassifiedItem[] = [];
+    for (const item of inputItems) {
+      try {
+        const {
+          classified: ci,
+          costEstimate,
+          latencyMs,
+        } = await classifyItem(item, stage, this.provider);
+        classified.push(ci);
+        result.costEstimate += costEstimate;
+
+        this.emit({
+          pipeline: this.name,
+          itemId: ci.id,
+          source: ci.source,
+          tier: 1,
+          action: ci.classification,
+          latencyMs,
+          costEstimate,
+          confidence: ci.confidence,
+        });
+      } catch {
+        // Classification failed → escalate to needs-reasoning
+        classified.push({
+          ...item,
+          classification: "needs-reasoning",
+          confidence: 0,
+        });
+      }
+    }
+
+    context.classified.push(...classified);
+    result.items = classified;
+  }
+
+  private async runExpensiveModel(
+    stage: StageConfig,
+    inputItems: (WorkItem | ClassifiedItem)[],
+    context: PipelineContext,
+    result: StageResult,
+  ): Promise<void> {
+    const callback = this.stageCallbacks[stage.name];
+    if (!callback || !stage.prompt) return;
+
+    const prompt = interpolatePrompt(stage.prompt, inputItems, context);
+    const output = await callback(inputItems as ClassifiedItem[], prompt);
+    context.stageOutputs.set(stage.name, output);
+    result.output = output;
+    result.items = inputItems as ClassifiedItem[];
+  }
+
+  private async runCallbackStage(
+    stage: StageConfig,
+    context: PipelineContext,
+    result: StageResult,
+  ): Promise<void> {
+    const callback = this.stageCallbacks[stage.name];
+    if (!callback) return;
+
+    const inputItems = applyInputFilter(stage.input, context);
+    const output = await callback(inputItems as ClassifiedItem[], "");
+    context.stageOutputs.set(stage.name, output);
+    result.output = output;
+    result.items = inputItems as ClassifiedItem[];
   }
 
   private emit(partial: Omit<TelemetryEvent, "event" | "timestamp">): void {

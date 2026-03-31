@@ -21,12 +21,12 @@ describe("parseClassificationResponse", () => {
     expect(result.confidence).toBe(0.8);
   });
 
-  it("extracts JSON surrounded by text", () => {
+  it("maps legacy human classification to needs-reasoning", () => {
     const result = parseClassificationResponse(
       'Here is my classification:\n{"classification": "human", "confidence": 0.9}\nDone.',
     );
 
-    expect(result.classification).toBe("human");
+    expect(result.classification).toBe("needs-reasoning");
     expect(result.confidence).toBe(0.9);
   });
 
@@ -54,7 +54,7 @@ describe("parseClassificationResponse", () => {
   });
 
   it("accepts all valid classifications", () => {
-    for (const c of ["routine", "urgent", "needs-reasoning", "human"]) {
+    for (const c of ["routine", "urgent", "needs-reasoning"]) {
       const result = parseClassificationResponse(
         `{"classification": "${c}", "confidence": 0.8}`,
       );

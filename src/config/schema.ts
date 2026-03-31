@@ -1,30 +1,32 @@
 import { z } from "zod";
 
-const tier0Schema = z.object({
+const postHookSchema = z.object({
   command: z.string(),
+  args: z.array(z.string()).default([]),
+  timeout: z.number().positive().default(15000),
+});
+
+const stageSchema = z.object({
+  name: z.string(),
+  type: z.enum(["script", "model", "callback"]),
+  // script fields
+  command: z.string().optional(),
   args: z.array(z.string()).default([]),
   timeout: z.number().positive().default(30000),
   cwd: z.string().optional(),
-});
-
-const tier1Schema = z.object({
-  systemPrompt: z.string(),
-  confidenceThreshold: z.number().min(0).max(1).default(0.7),
-});
-
-const tier2Schema = z.object({
-  prompt: z.string(),
-});
-
-const tier3Schema = z.object({
-  route: z.string(),
+  // model fields
+  provider: z.enum(["cheap", "expensive"]).optional(),
+  systemPrompt: z.string().optional(),
+  prompt: z.string().optional(),
+  confidenceThreshold: z.number().min(0).max(1).optional(),
+  // filtering
+  input: z.string().optional(),
+  // post-hook
+  postHook: postHookSchema.optional(),
 });
 
 const pipelineSchema = z.object({
-  tier0: tier0Schema.optional(),
-  tier1: tier1Schema.optional(),
-  tier2: tier2Schema.optional(),
-  tier3: tier3Schema.optional(),
+  stages: z.array(stageSchema).min(1),
 });
 
 const telemetrySchema = z.object({
@@ -53,10 +55,8 @@ export const tickleStickConfigSchema = z.object({
 
 export type TickleStickConfig = z.infer<typeof tickleStickConfigSchema>;
 export type PipelineConfigEntry = z.infer<typeof pipelineSchema>;
-export type Tier0Config = z.infer<typeof tier0Schema>;
-export type Tier1Config = z.infer<typeof tier1Schema>;
-export type Tier2Config = z.infer<typeof tier2Schema>;
-export type Tier3Config = z.infer<typeof tier3Schema>;
+export type StageConfig = z.infer<typeof stageSchema>;
+export type PostHookConfig = z.infer<typeof postHookSchema>;
 export type TelemetryConfig = z.infer<typeof telemetrySchema>;
 export type BudgetConfig = z.infer<typeof budgetSchema>;
 export type BudgetAlertConfig = z.infer<typeof budgetAlertSchema>;

@@ -1,16 +1,12 @@
 import type { ClassificationResult } from "../types.js";
 
-const VALID_CLASSIFICATIONS = new Set([
-  "routine",
-  "urgent",
-  "needs-reasoning",
-  "human",
-]);
+const VALID_CLASSIFICATIONS = new Set(["routine", "urgent", "needs-reasoning"]);
 
 /**
  * Parse a model's text response into a ClassificationResult.
  * Extracts JSON from plain text or markdown-wrapped code blocks.
  * Returns a safe fallback (needs-reasoning, confidence 0) on parse failure.
+ * Maps legacy "human" classification to "needs-reasoning".
  */
 export function parseClassificationResponse(
   text: string,
@@ -27,7 +23,13 @@ export function parseClassificationResponse(
       confidence?: number;
     };
 
-    const classification = parsed.classification;
+    let classification = parsed.classification;
+
+    // Map legacy "human" to "needs-reasoning"
+    if (classification === "human") {
+      classification = "needs-reasoning";
+    }
+
     if (!classification || !VALID_CLASSIFICATIONS.has(classification)) {
       return { classification: "needs-reasoning", confidence: 0 };
     }

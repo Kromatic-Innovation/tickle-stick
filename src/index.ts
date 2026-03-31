@@ -5,10 +5,8 @@ export { tickleStickConfigSchema } from "./config/schema.js";
 export type {
   TickleStickConfig,
   PipelineConfigEntry,
-  Tier0Config,
-  Tier1Config,
-  Tier2Config,
-  Tier3Config,
+  StageConfig,
+  PostHookConfig,
   TelemetryConfig,
   BudgetConfig,
 } from "./config/schema.js";
@@ -16,6 +14,8 @@ export type {
   WorkItem,
   ClassifiedItem,
   PipelineResult,
+  StageResult,
+  StageCallback,
   ClassificationResult,
   TriageProvider,
   StorageAdapter,
@@ -28,6 +28,7 @@ export {
   type BudgetManagerOptions,
 } from "./budget/budget-manager.js";
 export { runScript } from "./script-runner.js";
+export { runPostHook } from "./post-hook.js";
 export { parseClassificationResponse } from "./providers/parse.js";
 export {
   HttpTriageProvider,
