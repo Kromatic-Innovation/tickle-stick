@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { loadConfigFromString } from "../src/config/loader.js";
 import { tickleStickConfigSchema } from "../src/config/schema.js";
@@ -294,6 +295,94 @@ tickleStick:
 `;
     const config = loadConfigFromString(yaml);
     expect(config.tickleStick.pipelines["test"].stages[0].command).toBe("");
+  });
+});
+
+describe("File References ($file:)", () => {
+  const fixturesDir = path.resolve(__dirname, "fixtures");
+
+  it("resolves $file: references in prompt fields", () => {
+    const yaml = `
+tickleStick:
+  pipelines:
+    test:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "$file:test-prompt.md"
+`;
+    const config = loadConfigFromString(yaml, fixturesDir);
+    const prompt = config.tickleStick.pipelines["test"].stages[0].systemPrompt;
+    expect(prompt).toContain("Classify each item as JSON:");
+    expect(prompt).toContain('"classification": "routine"');
+  });
+
+  it("throws on missing file reference", () => {
+    const yaml = `
+tickleStick:
+  pipelines:
+    test:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "$file:nonexistent.md"
+`;
+    expect(() => loadConfigFromString(yaml, fixturesDir)).toThrow(
+      /File reference not found/,
+    );
+  });
+
+  it("leaves non-$file strings unchanged", () => {
+    const yaml = `
+tickleStick:
+  pipelines:
+    test:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "Inline prompt text"
+`;
+    const config = loadConfigFromString(yaml, fixturesDir);
+    expect(config.tickleStick.pipelines["test"].stages[0].systemPrompt).toBe(
+      "Inline prompt text",
+    );
+  });
+
+  it("resolves $file: in nested array elements", () => {
+    const yaml = `
+tickleStick:
+  pipelines:
+    test:
+      stages:
+        - name: gather
+          type: script
+          command: "echo"
+          args: ["$file:test-prompt.md"]
+`;
+    const config = loadConfigFromString(yaml, fixturesDir);
+    expect(config.tickleStick.pipelines["test"].stages[0].args[0]).toContain(
+      "Classify each item",
+    );
+  });
+
+  it("skips file resolution when no basePath provided", () => {
+    const yaml = `
+tickleStick:
+  pipelines:
+    test:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "$file:test-prompt.md"
+`;
+    const config = loadConfigFromString(yaml);
+    expect(config.tickleStick.pipelines["test"].stages[0].systemPrompt).toBe(
+      "$file:test-prompt.md",
+    );
   });
 });
 
