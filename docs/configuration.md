@@ -44,6 +44,13 @@ tickleStick:
           systemPrompt: "..." # cheap model: classification prompt
           confidenceThreshold: 0.7 # cheap model: below this → "needs-reasoning" (default: 0.7)
 
+        - name: enrich # Piped script: input filter triggers stdin piping
+          type: script
+          command: "python3"
+          args: ["enrich.py"]
+          input: "classified:needs-reasoning" # Items piped to stdin as JSON
+          timeout: 60000
+
         - name: reason
           type: model
           provider: expensive
@@ -72,6 +79,41 @@ tickleStick:
       - at: 0.50 # Absolute USD threshold
     retentionDays: 30 # Auto-prune events older than this (default: 30)
 ```
+
+## Script Stage Modes
+
+Script stages operate in two modes:
+
+### Gather mode (default)
+
+When a script stage has **no `input` filter**, it runs independently, fetches
+data from external sources, and outputs `WorkItem[]` JSON on stdout. Output
+items are appended to the pipeline context.
+
+### Piped mode (with `input` filter)
+
+When a script stage has an **`input` filter**, it receives filtered items from
+prior stages on **stdin** as a JSON array. The script transforms or enriches
+those items and outputs the result on stdout. Enriched items **replace** their
+originals in the pipeline context (matched by `id`).
+
+This enables post-classification enrichment without burning expensive model
+tokens on data-fetching tool calls. See
+[architecture.md](architecture.md#enrichment-pattern-piped-script-stages) for
+the design rationale.
+
+```yaml
+# Piped script stage example: enrich items after classification
+- name: enrich
+  type: script
+  command: "python3"
+  args: ["scripts/enrich.py"]
+  input: "classified:needs-reasoning,classified:urgent"
+  timeout: 60000
+```
+
+The enrichment script reads JSON from stdin, adds context to each item's
+`metadata`, and writes the enriched array to stdout.
 
 ## Input Filters
 

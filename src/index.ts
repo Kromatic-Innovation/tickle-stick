@@ -1,7 +1,7 @@
 export { Pipeline, type PipelineOptions } from "./pipeline.js";
 export { loadConfig, loadConfigFromString } from "./config/loader.js";
 export { DEFAULT_CONFIG } from "./config/defaults.js";
-export { tickleStickConfigSchema } from "./config/schema.js";
+export { tickleStickConfigSchema, scheduleSchema } from "./config/schema.js";
 export type {
   TickleStickConfig,
   PipelineConfigEntry,
@@ -9,6 +9,7 @@ export type {
   PostHookConfig,
   TelemetryConfig,
   BudgetConfig,
+  ScheduleConfig,
 } from "./config/schema.js";
 export type {
   WorkItem,

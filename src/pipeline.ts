@@ -16,7 +16,7 @@ import type {
 } from "./config/schema.js";
 import { BudgetManager } from "./budget/budget-manager.js";
 import { classifyItem } from "./tiers/tier1-triage.js";
-import { runScript } from "./script-runner.js";
+import { runScript, runPipedScript } from "./script-runner.js";
 import { runPostHook } from "./post-hook.js";
 import {
   createLogger,
@@ -256,20 +256,103 @@ export class Pipeline {
     };
   }
 
+  /**
+   * Run a script stage.
+   *
+   * Two modes, determined by the presence of `stage.input`:
+   *
+   * 1. **Gather mode** (no input filter): script runs independently and
+   *    produces new WorkItems. This is the standard Tier 0 data-collection
+   *    pattern — the script fetches from external sources (Gmail, Calendar,
+   *    GitHub, etc.) and outputs WorkItem[] JSON on stdout.
+   *
+   * 2. **Piped mode** (input filter set): filtered items from prior stages
+   *    are serialized as JSON and piped to the script's stdin. The script
+   *    transforms/enriches those items and outputs the result on stdout.
+   *    This enables post-classification enrichment — e.g., once a cheap
+   *    model (thalamus) flags items as worth reasoning about, a piped
+   *    script can fetch full context (threads, sender history, calendar)
+   *    before the expensive model runs. This avoids enriching items that
+   *    were filtered out (spam, routine) and avoids burning expensive
+   *    model tokens on data-fetching tool calls.
+   *
+   *    Piped scripts replace their input items in the context rather than
+   *    appending, since they're transforming existing items, not producing
+   *    new ones.
+   */
   private async runScriptStage(
     stage: StageConfig,
     context: PipelineContext,
     result: StageResult,
   ): Promise<void> {
     if (!stage.command) return;
-    const items = await runScript(
-      stage.command,
-      stage.args,
-      stage.timeout,
-      stage.cwd,
-    );
-    context.allItems.push(...items);
-    result.items = items;
+
+    if (stage.input) {
+      // Piped mode: filter items, pipe to stdin, replace in context
+      const inputItems = applyInputFilter(stage.input, context);
+      if (inputItems.length === 0) return;
+
+      const stdinData = JSON.stringify(
+        inputItems.map((item) => ({
+          id: item.id,
+          source: item.source,
+          type: item.type,
+          summary: item.summary,
+          body: item.body,
+          metadata: item.metadata,
+          ...("classification" in item
+            ? {
+                classification: item.classification,
+                confidence: item.confidence,
+              }
+            : {}),
+        })),
+      );
+
+      const enriched = await runPipedScript(
+        stage.command,
+        stage.args,
+        stage.timeout,
+        stdinData,
+        stage.cwd,
+      );
+
+      if (enriched.length > 0) {
+        // Replace input items with enriched versions in context
+        const enrichedIds = new Set(enriched.map((e) => e.id));
+        context.allItems = context.allItems.filter(
+          (i) => !enrichedIds.has(i.id),
+        );
+        context.allItems.push(...enriched);
+
+        // Also update classified items if they were enriched
+        const enrichedMap = new Map(enriched.map((e) => [e.id, e]));
+        context.classified = context.classified.map((c) => {
+          const updated = enrichedMap.get(c.id);
+          if (updated) {
+            return {
+              ...c,
+              ...updated,
+              classification: c.classification,
+              confidence: c.confidence,
+            };
+          }
+          return c;
+        });
+      }
+
+      result.items = enriched;
+    } else {
+      // Gather mode: script runs independently, produces new items
+      const items = await runScript(
+        stage.command,
+        stage.args,
+        stage.timeout,
+        stage.cwd,
+      );
+      context.allItems.push(...items);
+      result.items = items;
+    }
   }
 
   private async runModelStage(

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import type { WorkItem } from "./types.js";
 
 /**
@@ -21,38 +21,81 @@ export function runScript(
           resolve([]);
           return;
         }
-        const trimmed = stdout.trim();
-        if (!trimmed) {
-          resolve([]);
-          return;
-        }
-        try {
-          const parsed = JSON.parse(trimmed) as unknown;
-          if (!Array.isArray(parsed)) {
-            resolve([]);
-            return;
-          }
-          const items: WorkItem[] = parsed.map(
-            (item: Record<string, unknown>, i: number) => ({
-              id: String(item.id ?? `item-${i}`),
-              source: String(item.source ?? "unknown"),
-              type: String(item.type ?? "unknown"),
-              summary: String(item.summary ?? ""),
-              body: item.body != null ? String(item.body) : undefined,
-              metadata:
-                item.metadata != null
-                  ? (item.metadata as Record<string, unknown>)
-                  : undefined,
-              timestamp: item.timestamp
-                ? new Date(String(item.timestamp))
-                : new Date(),
-            }),
-          );
-          resolve(items);
-        } catch {
-          resolve([]);
-        }
+        resolve(parseScriptOutput(stdout));
       },
     );
   });
+}
+
+/**
+ * Execute a script with JSON data piped to stdin.
+ * Used for enrichment stages that transform filtered items.
+ * On any error, returns the original items unchanged.
+ */
+export function runPipedScript(
+  command: string,
+  args: string[],
+  timeout: number,
+  stdinData: string,
+  cwd?: string,
+): Promise<WorkItem[]> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout,
+    });
+
+    let stdout = "";
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeout);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf-8");
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut || code !== 0) {
+        resolve([]);
+        return;
+      }
+      resolve(parseScriptOutput(stdout));
+    });
+
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve([]);
+    });
+
+    child.stdin.write(stdinData);
+    child.stdin.end();
+  });
+}
+
+function parseScriptOutput(stdout: string): WorkItem[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item: Record<string, unknown>, i: number) => ({
+      id: String(item.id ?? `item-${i}`),
+      source: String(item.source ?? "unknown"),
+      type: String(item.type ?? "unknown"),
+      summary: String(item.summary ?? ""),
+      body: item.body != null ? String(item.body) : undefined,
+      metadata:
+        item.metadata != null
+          ? (item.metadata as Record<string, unknown>)
+          : undefined,
+      timestamp: item.timestamp ? new Date(String(item.timestamp)) : new Date(),
+    }));
+  } catch {
+    return [];
+  }
 }

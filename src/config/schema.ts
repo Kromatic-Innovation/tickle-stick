@@ -25,9 +25,22 @@ const stageSchema = z.object({
   postHook: postHookSchema.optional(),
 });
 
-const pipelineSchema = z.object({
-  stages: z.array(stageSchema).min(1),
-});
+export const scheduleSchema = z
+  .object({
+    type: z.enum(["cron", "interval", "once"]),
+    value: z.string(),
+    name: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
+
+const pipelineSchema = z
+  .object({
+    stages: z.array(stageSchema).min(1),
+    schedule: scheduleSchema.optional(),
+    schedules: z.array(scheduleSchema).optional(),
+  })
+  .passthrough();
 
 const telemetrySchema = z.object({
   enabled: z.boolean().default(true),
@@ -46,11 +59,13 @@ const budgetSchema = z.object({
 });
 
 export const tickleStickConfigSchema = z.object({
-  tickleStick: z.object({
-    pipelines: z.record(z.string(), pipelineSchema).default({}),
-    telemetry: telemetrySchema.default({ enabled: true, format: "json" }),
-    budget: budgetSchema.optional(),
-  }),
+  tickleStick: z
+    .object({
+      pipelines: z.record(z.string(), pipelineSchema).default({}),
+      telemetry: telemetrySchema.default({ enabled: true, format: "json" }),
+      budget: budgetSchema.optional(),
+    })
+    .passthrough(),
 });
 
 export type TickleStickConfig = z.infer<typeof tickleStickConfigSchema>;
@@ -60,3 +75,4 @@ export type PostHookConfig = z.infer<typeof postHookSchema>;
 export type TelemetryConfig = z.infer<typeof telemetrySchema>;
 export type BudgetConfig = z.infer<typeof budgetSchema>;
 export type BudgetAlertConfig = z.infer<typeof budgetAlertSchema>;
+export type ScheduleConfig = z.infer<typeof scheduleSchema>;
