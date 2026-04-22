@@ -25,6 +25,9 @@ export function runPostHook(
     );
 
     if (child.stdin) {
+      // Silently drop EPIPE — child may have exited before we finish writing,
+      // and the execFile callback above will reject with the real exit reason.
+      child.stdin.on("error", () => {});
       child.stdin.write(stdinData);
       child.stdin.end();
     }

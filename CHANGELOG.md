@@ -1,0 +1,71 @@
+# Changelog
+
+All notable changes to Tickle-Stick are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.0] — 2026-04-22
+
+First public npm publish (public-beta). The core pipeline contract is
+stable; a handful of public-surface edges are being tracked for `1.0`
+stabilization in
+[#34](https://github.com/Kromatic-Innovation/tickle-stick/issues/34).
+
+### Added
+
+- **Public `exports` map** in `package.json` so ESM bundlers resolve the
+  entrypoint and types deterministically instead of falling back to
+  `"main"` / `"types"` heuristics.
+- **`files` allowlist** restricting the npm tarball to `dist/`, `src/`,
+  `README.md`, and `LICENSE`. Drops the published tarball from 5.2 MB /
+  131 files to ~42 kB / ~94 files and excludes internal scaffolding
+  (`AGENTS.md`, `CLAUDE.md`, `.specify/`, `.github/`, `assets/*.png`).
+- **`CONTRIBUTING.md`** — development setup, branch naming, and PR
+  expectations.
+- **`SECURITY.md`** — private vulnerability reporting flow via
+  `team@kromatic.com`.
+- **`CODE_OF_CONDUCT.md`** — Contributor Covenant 2.1.
+- **`CHANGELOG.md`** — this file.
+- **README "Requirements" section** documenting Node ≥ 20 and the
+  `moduleResolution: "bundler"` / `"node16"` expectation for TypeScript
+  consumers.
+- **Self-contained quickstart** in the README — 15-25 lines, runs
+  end-to-end with no external services, uses only public API.
+- **README "Cheap vs. expensive stages" section** explaining the asymmetry
+  between `triageProvider` (cheap) and `stageCallbacks[stageName]`
+  (expensive). Tracked for 1.0 unification in
+  [#34](https://github.com/Kromatic-Innovation/tickle-stick/issues/34).
+
+### Changed
+
+- **`config/tickle-stick.yaml`** now matches the current Zod schema
+  (pipelines + stages shape). The prior `tier0/tier1` shape was rolled
+  into the pre-0.3 refactor and will not validate.
+- **README hero image** now references the absolute GitHub raw URL so the
+  image renders on npmjs.com after `assets/` is excluded from the tarball.
+- **`package.json.description`** aligned to "cost-hierarchy pipeline" so
+  vocabulary matches the README.
+
+### Removed
+
+- **Empty `peerDependencies: {}` and `peerDependenciesMeta: {}`** from
+  `package.json` — noise that had no effect on resolution.
+- **`openclaw` keyword** from `package.json` — Kromatic-internal term;
+  strangers won't search for it on npm.
+- **`NanoClaw` / `OpenClaw` Host Compatibility table** from the README —
+  Kromatic-internal hosts; not useful context for external consumers.
+- **Stale `dist/` artifacts** (`interceptor.*`, `tiers/tier0-*`,
+  `tiers/tier2-*`, `tiers/tier3-*`) from the pre-refactor codebase.
+  Rebuilt clean before publish.
+
+### Known — tracked for 1.0
+
+- See [#34](https://github.com/Kromatic-Innovation/tickle-stick/issues/34)
+  for the full yellow-flag list: over-exposed internal plumbing, silent
+  stage-error swallowing, unnamed `Classification` union, legacy `"human"`
+  shim in `parse.ts`, hardcoded Haiku pricing in `tier1-triage.ts`,
+  489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
+  prune, asymmetric provider API.
+
+[0.3.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.3.0

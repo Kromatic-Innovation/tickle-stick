@@ -21,6 +21,11 @@ export default [
         clearTimeout: "readonly",
         performance: "readonly",
         Response: "readonly",
+        Buffer: "readonly",
+        __dirname: "readonly",
+        __filename: "readonly",
+        DOMException: "readonly",
+        RequestInit: "readonly",
       },
     },
     plugins: {
