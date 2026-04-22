@@ -1,10 +1,10 @@
 # Tickle-Stick
 
-**Cost-optimized task execution pipeline for agentic workflows.**
+**Cost-hierarchy pipeline for agentic workflows.**
 
 > Named after the diving tool used to gently probe before committing.
 
-![Tickle-Stick Hero](assets/hero.png)
+![Tickle-Stick Hero](https://raw.githubusercontent.com/Kromatic-Innovation/tickle-stick/develop/assets/hero.png)
 
 ---
 
@@ -56,15 +56,106 @@ Scheduled Task (cron trigger from host)
 | 5 cron tasks/day (80% no data) | $3.75/day            | $0.15/day         | **96%** |
 | Weekly retro + daily briefing  | $1.80/week           | $0.30/week        | **83%** |
 
+## Requirements
+
+- **Node.js ≥ 20** (declared in `engines`).
+- **ESM-only.** Consumers must import, not `require()`.
+- **TypeScript consumers** must use `"moduleResolution": "bundler"` or
+  `"node16"` (or newer) in `tsconfig.json`. The library ships `.js`-suffixed
+  import specifiers per Node16 convention.
+
 ## Quick Start
+
+Install:
 
 ```bash
 npm install tickle-stick
 ```
 
-Create `tickle-stick.yaml`:
+This end-to-end example runs with **no external services** — it uses an
+inline fake triage provider and an echo shell command. Paste into
+`quickstart.mjs`, then `node quickstart.mjs`.
+
+```javascript
+import { Pipeline } from "tickle-stick";
+
+// A fake "cheap model" — classifies everything as needs-reasoning.
+// Replace with HttpTriageProvider (see below) for real OpenAI/Anthropic.
+const triageProvider = {
+  name: "fake-triage",
+  async classify(text) {
+    return {
+      classification: "needs-reasoning",
+      response: `stub for: ${text.slice(0, 40)}`,
+      confidence: 0.9,
+    };
+  },
+};
+
+const pipeline = new Pipeline({
+  name: "demo",
+  config: {
+    stages: [
+      {
+        name: "gather",
+        type: "script",
+        command: "echo",
+        args: [
+          '[{"id":"demo-1","source":"chat","type":"message","summary":"Hello world","timestamp":"2026-04-22T10:00:00Z"}]',
+        ],
+        timeout: 5000,
+      },
+      {
+        name: "classify",
+        type: "model",
+        provider: "cheap",
+        systemPrompt: "Classify the item.",
+        confidenceThreshold: 0.7,
+      },
+      {
+        name: "reason",
+        type: "model",
+        provider: "expensive",
+        prompt: "Synthesize a response for: {{items}}",
+        input: "classified:needs-reasoning",
+      },
+      { name: "deliver", type: "callback" },
+    ],
+  },
+  triageProvider,
+  stageCallbacks: {
+    reason: async (items) => `reasoned ${items.length} item(s)`,
+    deliver: async (items) => {
+      console.log("delivered:", items.map((i) => i.summary).join(", "));
+      return "";
+    },
+  },
+});
+
+const result = await pipeline.run();
+console.log(
+  `items=${result.totalItems} cost=$${result.costEstimate.toFixed(4)}`,
+);
+```
+
+Expected output (with telemetry logs elided):
+
+```
+delivered: Hello world
+items=1 cost=$0.0010
+```
+
+That's the full loop: script stage produces one item, the fake triage
+provider classifies it, the `reason` stage runs the callback, and the
+`deliver` callback prints the summary.
+
+## YAML Configuration
+
+For production use, move the stage definitions into a YAML file and load
+them with `loadConfig()`:
 
 ```yaml
+# tickle-stick.yaml
 tickleStick:
   pipelines:
     email-check:
@@ -100,35 +191,19 @@ tickleStick:
           type: callback
 ```
 
-Use it:
-
 ```typescript
 import { Pipeline, loadConfig } from "tickle-stick";
-import type { TriageProvider } from "tickle-stick";
 
-const config = loadConfig();
+const config = loadConfig(); // reads ./tickle-stick.yaml or ./config/tickle-stick.yaml
 const pipelineConfig = config.tickleStick.pipelines["email-check"];
-
-// Host provides a TriageProvider for cheap model stages
-const myProvider: TriageProvider = {
-  name: "haiku",
-  async classify(text, systemPrompt) {
-    const response = await callYourCheapModel(text, systemPrompt);
-    return parseClassificationResponse(response);
-  },
-};
 
 const pipeline = new Pipeline({
   name: "email-check",
   config: pipelineConfig,
-  triageProvider: myProvider,
+  triageProvider,
   stageCallbacks: {
-    reason: async (items, prompt) => {
-      // Call your expensive model here
-      return await callYourReasoningModel(prompt);
-    },
+    reason: async (items, prompt) => callYourReasoningModel(prompt),
     deliver: async (items) => {
-      // Send to Slack, WhatsApp, etc.
       await sendToChannel(items.map((i) => i.summary).join("\n"));
       return "";
     },
@@ -136,9 +211,6 @@ const pipeline = new Pipeline({
 });
 
 const result = await pipeline.run();
-console.log(
-  `Items: ${result.totalItems}, Cost: $${result.costEstimate.toFixed(4)}`,
-);
 ```
 
 ## Script Stages
@@ -195,6 +267,20 @@ const provider = new HttpTriageProvider({
 });
 ```
 
+## Cheap vs. expensive stages
+
+The two kinds of `type: model` stage wire to different host-supplied mechanisms:
+
+- `provider: cheap` — uses the `triageProvider` option passed to `Pipeline`.
+  The provider returns a structured `{classification, response, confidence}`
+  triple. Single wiring point for every cheap-model stage.
+- `provider: expensive` — uses `stageCallbacks[stageName]`. The callback
+  receives filtered items and the rendered prompt; it returns a string.
+  Keyed by stage name so you can wire multiple expensive stages independently.
+
+The asymmetry is deliberate: cheap stages share a classifier contract; expensive
+stages are free-form per-stage reasoning calls.
+
 ## Post-Hooks
 
 Any stage can have a `postHook` — a script that runs after the stage completes.
@@ -221,6 +307,9 @@ Control which items a stage sees with the `input` field:
 - `classified:needs-reasoning` — only items classified as needs-reasoning
 - `classified:urgent,classified:needs-reasoning` — comma-separated union
 - _(omitted)_ — all items from previous stages
+
+The `classified:*` label values must match the `classification` field
+returned by your `TriageProvider`.
 
 ## Budget & Alerts
 
@@ -298,15 +387,14 @@ if (status) {
 }
 ```
 
-## Host Compatibility
+## Public-beta notice (0.3.x)
 
-Tickle-stick works with any host that provides stage callbacks:
-
-| Host     | Expensive Model Stage        | Callback Stage              |
-| -------- | ---------------------------- | --------------------------- |
-| NanoClaw | Direct API call or container | Sends to channel (WA/Slack) |
-| OpenClaw | Calls model API directly     | Queues to delivery system   |
-| Custom   | Your reasoning logic         | Your delivery logic         |
+Tickle-stick 0.3.x is a **public beta**. The core pipeline contract
+(`Pipeline`, `TriageProvider`, `StorageAdapter`, YAML schema) is stable,
+but a handful of internal-plumbing exports and config edge cases are still
+being narrowed before 1.0. See the
+[1.0 tracking issue](https://github.com/Kromatic-Innovation/tickle-stick/issues)
+(label `moscow:could`) for the full list.
 
 ## License
 

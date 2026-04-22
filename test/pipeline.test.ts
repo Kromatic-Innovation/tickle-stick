@@ -214,7 +214,7 @@ describe("Pipeline", () => {
       stageCallbacks,
     });
 
-    const result = await pipeline.run();
+    await pipeline.run();
 
     // Low confidence → needs-reasoning → expensive model stage
     expect(stageCallbacks.reason).toHaveBeenCalledOnce();
