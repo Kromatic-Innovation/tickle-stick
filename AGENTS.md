@@ -21,7 +21,8 @@ Inherits from `$WORKSPACE/policies/branch-and-promotion.md`:
 
 - Feature work on `codex/feature/<topic>` branches
 - Merge to `develop` with merge commit
-- Promotion: `develop → staging → main` (fast-forward only)
+
+**Repo metadata** (promotion model, staging status, Sentry projects, traffic tier, autonomous-loop opt-in): see `~/Code/docs/project-registry.yaml` entry for `Kromatic-Innovation/tickle-stick`. Do not duplicate that metadata here.
 
 ## Spec-driven development
 
