@@ -1,50 +1,38 @@
 tickleStick:
-  tier0:
-    patterns:
-      - match: "^(hi|hello|hey|howdy)\\b"
-        type: regex
-        flags: "i"
-        action: deflect
-        response: "Hello! How can I help you today?"
+  pipelines:
+    demo:
+      stages:
+        - name: gather
+          type: script
+          command: "echo"
+          args: ['[{"id": "demo-1", "source": "chat", "type": "message", "summary": "Hello world", "timestamp": "2026-03-25T10:00:00Z"}]']
+          timeout: 5000
 
-      - match: "/help"
-        type: command
-        action: deflect
-        response: |
-          Available commands: /help, /status, /escalate
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: |
+            You are the Tickle-Stick demo triage classifier. This is a public demo
+            showing how agent cost hierarchies work.
 
-          For complex questions, just ask — your message will be routed to the right place.
+            Classify the incoming item. Respond with ONLY a JSON object:
+            {"classification": "routine"|"urgent"|"needs-reasoning", "response": "...", "confidence": 0.0-1.0}
 
-      - match: "/status"
-        type: command
-        action: deflect
-        response: "All systems operational."
+            Rules:
+            - "routine": Simple, factual questions. Answer directly.
+            - "needs-reasoning": Complex, multi-part, or technical questions.
+            - "urgent": Time-sensitive items needing immediate processing.
+          confidenceThreshold: 0.7
 
-    keywords:
-      - match: ["unsubscribe", "stop emails", "remove me"]
-        action: deflect
-        response: "Your request has been noted. You will be removed from future communications."
-
-  tier1:
-    systemPrompt: |
-      You are a message triage classifier. Analyze the incoming message and classify it.
-
-      Respond with ONLY a JSON object (no markdown, no explanation):
-      {"action": "deflect"|"escalate"|"human", "response": "...", "confidence": 0.0-1.0}
-
-      Rules:
-      - "deflect": Simple questions you can answer directly. Provide a helpful response.
-      - "escalate": Complex, ambiguous, or technical messages that need a full agent.
-      - "human": Sales inquiries, partnerships, complaints, or anything needing a human touch.
-
-      Keep deflect responses concise (1-3 sentences).
-    confidenceThreshold: 0.7
-    timeout: 5000
-
-  # Tier 3 is decision-only — the host handles dispatch when it sees
-  # action: "human" in the TierResult.
+        - name: reason
+          type: model
+          provider: expensive
+          prompt: |
+            Process these escalated items:
+            {{items}}
+            Provide detailed reasoning for each.
+          input: "classified:needs-reasoning,classified:urgent"
 
   telemetry:
     enabled: true
     format: json
-    includeMessagePreview: false

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { Pipeline } from "../src/pipeline.js";
-import type { PipelineConfigEntry, StageConfig } from "../src/config/schema.js";
-import type { WorkItem, TriageProvider, StageResult } from "../src/types.js";
+import type { StageConfig } from "../src/config/schema.js";
+import type { WorkItem, TriageProvider } from "../src/types.js";
 
 const sampleItems: WorkItem[] = [
   {
@@ -148,7 +148,7 @@ describe("Multi-stage pipeline", () => {
       stageCallbacks,
     });
 
-    const result = await pipeline.run();
+    await pipeline.run();
 
     // All items classified as routine → all go to summarize
     const [items] = stageCallbacks.summarize.mock.calls[0];
