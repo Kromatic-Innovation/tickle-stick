@@ -53,17 +53,17 @@ jobs:
       # package to have a configured trusted publisher on npmjs.com that
       # references this repo + workflow file. No NPM_TOKEN secret needed.
       #
-      # NODE_AUTH_TOKEN is explicitly unset because setup-node's
-      # `registry-url` exports a placeholder (`XXXXX-XXXXX-XXXXX-XXXXX`)
-      # that npm would interpret as a real (failing) auth token and use
-      # instead of the OIDC token-exchange. With NODE_AUTH_TOKEN empty,
-      # the `_authToken=${NODE_AUTH_TOKEN}` in the generated `.npmrc`
-      # resolves to nothing, and npm 11.5.1+ falls through to the
-      # OIDC trusted-publishing path.
+      # We explicitly remove the .npmrc files setup-node wrote. setup-node's
+      # `registry-url` input writes both `~/.npmrc` and `$RUNNER_TEMP/.npmrc`
+      # with `_authToken=${NODE_AUTH_TOKEN}` and exports a placeholder
+      # (`XXXXX-XXXXX-XXXXX-XXXXX`) for NODE_AUTH_TOKEN. npm 11.5.1+ only
+      # attempts OIDC trusted publishing when no auth token is configured;
+      # the placeholder defeats that detection. Removing the .npmrc files
+      # leaves npm's auth state empty so the OIDC token-exchange runs.
       - name: Publish to npm (trusted publishing)
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ""
+        run: |
+          rm -f ~/.npmrc "$RUNNER_TEMP/.npmrc"
+          npm publish --provenance --access public --registry=https://registry.npmjs.org/
         # Fallback: if trusted publishing is not configured on npmjs.com,
         # comment out the step above and uncomment the block below. This
         # uses a classic automation token stored in the NPM_TOKEN repo
