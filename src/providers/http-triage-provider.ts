@@ -47,29 +47,62 @@ export class HttpTriageProvider implements TriageProvider {
     text: string,
     systemPrompt: string,
   ): Promise<ClassificationResult> {
+    try {
+      const body = await this.fetchModelBody(text, systemPrompt);
+      if (!body) return { classification: "needs-reasoning", confidence: 0 };
+      const responseText = this.extractText(body);
+      const decision = parseClassificationResponse(responseText);
+      decision.tokenUsage = this.extractTokenUsage(body);
+      return decision;
+    } catch {
+      return { classification: "needs-reasoning", confidence: 0 };
+    }
+  }
+
+  /**
+   * Issue the same provider call as `classify()` but return the raw model
+   * text without running it through the message-triage parser. Use this
+   * when your system prompt asks the model for a JSON shape other than
+   * `{classification, response, confidence}` and you want to own the
+   * parsing yourself.
+   *
+   * Throws on transport / HTTP errors so callers can apply their own
+   * retry / fallback. Unlike `classify()`, this method does NOT swallow
+   * errors into a sentinel value — silent failure has caused real
+   * production poisoning when the caller's parser couldn't tell a
+   * timeout from an empty response.
+   */
+  async classifyRaw(text: string, systemPrompt: string): Promise<string> {
+    const body = await this.fetchModelBody(text, systemPrompt, {
+      throwOnError: true,
+    });
+    if (!body) return "";
+    return this.extractText(body);
+  }
+
+  private async fetchModelBody(
+    text: string,
+    systemPrompt: string,
+    opts: { throwOnError?: boolean } = {},
+  ): Promise<Record<string, unknown> | null> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeout);
-
     try {
       const { url, init } =
         this.options.provider === "anthropic"
           ? this.buildAnthropicRequest(text, systemPrompt)
           : this.buildOpenAIRequest(text, systemPrompt);
-
       const response = await fetch(url, { ...init, signal: controller.signal });
-
       if (!response.ok) {
-        return { classification: "needs-reasoning", confidence: 0 };
+        if (opts.throwOnError) {
+          const errBody = await response.text().catch(() => "");
+          throw new Error(
+            `${this.options.provider} API ${response.status}: ${errBody.slice(0, 200)}`,
+          );
+        }
+        return null;
       }
-
-      const body = (await response.json()) as Record<string, unknown>;
-      const responseText = this.extractText(body);
-      const decision = parseClassificationResponse(responseText);
-      decision.tokenUsage = this.extractTokenUsage(body);
-
-      return decision;
-    } catch {
-      return { classification: "needs-reasoning", confidence: 0 };
+      return (await response.json()) as Record<string, unknown>;
     } finally {
       clearTimeout(timer);
     }

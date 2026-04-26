@@ -5,6 +5,28 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-04-26
+
+### Added
+
+- **`HttpTriageProvider.classifyRaw(text, systemPrompt): Promise<string>`** —
+  returns the model's raw response text without running it through
+  `parseClassificationResponse`. Use this when your system prompt asks the
+  model for a JSON shape other than `{classification, response, confidence}`
+  (e.g. MoSCoW triage, urgency classification, free-form parsing). Throws
+  on transport / HTTP errors so callers own their fallback. Closes
+  [#36](https://github.com/Kromatic-Innovation/tickle-stick/issues/36).
+- **`TriageProvider.classifyRaw?`** — optional method on the provider
+  interface. Existing in-process providers that only implement `classify()`
+  continue to work; callers should feature-detect.
+
+### Changed
+
+- `HttpTriageProvider.classify()` now shares its fetch path with
+  `classifyRaw()` via an internal `fetchModelBody()` helper. Behavior is
+  unchanged — `classify()` still swallows errors into the
+  `needs-reasoning` sentinel for backward compatibility.
+
 ## [0.3.0] — 2026-04-22
 
 First public npm publish (public-beta). The core pipeline contract is

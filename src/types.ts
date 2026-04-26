@@ -43,10 +43,22 @@ export interface ClassificationResult {
   tokenUsage?: { input: number; output: number };
 }
 
-/** Provider for cheap model classification. Host injects implementation. */
+/** Provider for cheap model classification. Host injects implementation.
+ *
+ * `classify()` is for the message-triage schema (routine | urgent |
+ * needs-reasoning). Callers that drive the model with a different system
+ * prompt and want the raw response text should use `classifyRaw()` and
+ * own their own parsing — `classify()` would otherwise silently discard
+ * non-conforming responses via the message-triage parser.
+ *
+ * `classifyRaw()` is optional so existing in-process providers that only
+ * implement `classify()` continue to work; callers should feature-detect
+ * before invoking it.
+ */
 export interface TriageProvider {
   readonly name: string;
   classify(text: string, systemPrompt: string): Promise<ClassificationResult>;
+  classifyRaw?(text: string, systemPrompt: string): Promise<string>;
 }
 
 /** Callback for expensive model or callback stages. */
