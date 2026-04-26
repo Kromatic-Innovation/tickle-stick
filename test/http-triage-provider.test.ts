@@ -217,6 +217,94 @@ describe("HttpTriageProvider", () => {
     });
   });
 
+  describe("classifyRaw", () => {
+    it("returns the model's raw text without parsing for OpenAI", async () => {
+      mockFetchResponse({
+        choices: [
+          {
+            message: {
+              content:
+                '{"moscow":"must","proposed_action":"revert #1234","affected_users":150,"confidence":0.85}',
+            },
+          },
+        ],
+      });
+      const provider = makeProvider({ provider: "openai" });
+      const raw = await provider.classifyRaw(
+        "triage me",
+        "MoSCoW system prompt",
+      );
+      expect(raw).toBe(
+        '{"moscow":"must","proposed_action":"revert #1234","affected_users":150,"confidence":0.85}',
+      );
+    });
+
+    it("returns the model's raw text without parsing for Anthropic", async () => {
+      mockFetchResponse({
+        content: [
+          {
+            text: '{"moscow":"should","proposed_action":"bump pg","affected_users":0,"confidence":0.7}',
+          },
+        ],
+      });
+      const provider = makeProvider({ provider: "anthropic" });
+      const raw = await provider.classifyRaw(
+        "triage me",
+        "MoSCoW system prompt",
+      );
+      expect(raw).toBe(
+        '{"moscow":"should","proposed_action":"bump pg","affected_users":0,"confidence":0.7}',
+      );
+    });
+
+    it("does NOT swallow non-message-triage shapes (regression for tickle-stick#36)", async () => {
+      // The whole point of classifyRaw — `classify()` would silently
+      // discard this and return needs-reasoning because the message-triage
+      // parser doesn't recognize the moscow shape.
+      const moscowReply = JSON.stringify({
+        moscow: "could",
+        proposed_action: "file issue",
+        affected_users: 1,
+        confidence: 0.6,
+      });
+      mockFetchResponse({
+        choices: [{ message: { content: moscowReply } }],
+      });
+      const provider = makeProvider();
+      const raw = await provider.classifyRaw("test", "system");
+      expect(raw).toBe(moscowReply);
+    });
+
+    it("throws on HTTP error so callers can apply their own fallback", async () => {
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('{"error":"unauthorized"}'),
+      });
+      const provider = makeProvider();
+      await expect(provider.classifyRaw("test", "system")).rejects.toThrow(
+        /openai API 401/,
+      );
+    });
+
+    it("throws on fetch failure", async () => {
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("Network error"),
+      );
+      const provider = makeProvider();
+      await expect(provider.classifyRaw("test", "system")).rejects.toThrow(
+        /Network error/,
+      );
+    });
+
+    it("returns empty string when response has no content", async () => {
+      mockFetchResponse({ choices: [] });
+      const provider = makeProvider();
+      const raw = await provider.classifyRaw("test", "system");
+      expect(raw).toBe("");
+    });
+  });
+
   describe("defaults", () => {
     it("uses default maxTokens and timeout", async () => {
       mockFetchResponse({
