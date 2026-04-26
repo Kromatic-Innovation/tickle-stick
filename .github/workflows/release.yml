@@ -32,6 +32,14 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
+      # Trusted publishing requires npm >= 11.5.1 — Node 20 ships npm 10.x,
+      # which signs provenance attestations but doesn't perform the
+      # OIDC↔registry token exchange. Without this upgrade, `npm publish`
+      # 404s with "package not found" because the request reaches npmjs.org
+      # without an auth token.
+      - name: Upgrade npm to support trusted publishing
+        run: npm install -g npm@latest
+
       - name: Install
         run: npm ci
 
