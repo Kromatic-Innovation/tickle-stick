@@ -1,9 +1,22 @@
 import type { WorkItem, ClassifiedItem, TriageProvider } from "../types.js";
 import type { StageConfig } from "../config/schema.js";
 
+/** Default per-token rates ($USD). Match Anthropic Haiku 3.5 / OpenAI 4o-mini. */
+export const DEFAULT_COST_PER_INPUT_TOKEN = 0.00000025;
+export const DEFAULT_COST_PER_OUTPUT_TOKEN = 0.00000125;
+/** Default cost charged when the provider does not return tokenUsage. */
+export const DEFAULT_COST_ESTIMATE = 0.001;
+
 export async function classifyItem(
   item: WorkItem,
-  config: Pick<StageConfig, "systemPrompt" | "confidenceThreshold">,
+  config: Pick<
+    StageConfig,
+    | "systemPrompt"
+    | "confidenceThreshold"
+    | "costPerInputToken"
+    | "costPerOutputToken"
+    | "defaultCostEstimate"
+  >,
   provider: TriageProvider,
 ): Promise<{
   classified: ClassifiedItem;
@@ -34,11 +47,13 @@ export async function classifyItem(
   const result = await provider.classify(text, config.systemPrompt);
   const latencyMs = performance.now() - start;
 
-  let costEstimate = 0.001;
+  const inputRate = config.costPerInputToken ?? DEFAULT_COST_PER_INPUT_TOKEN;
+  const outputRate = config.costPerOutputToken ?? DEFAULT_COST_PER_OUTPUT_TOKEN;
+  let costEstimate = config.defaultCostEstimate ?? DEFAULT_COST_ESTIMATE;
   if (result.tokenUsage) {
     costEstimate =
-      result.tokenUsage.input * 0.00000025 +
-      result.tokenUsage.output * 0.00000125;
+      result.tokenUsage.input * inputRate +
+      result.tokenUsage.output * outputRate;
   }
 
   // Below confidence threshold → escalate to reasoning

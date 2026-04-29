@@ -373,6 +373,11 @@ const pipeline = new Pipeline({
   timezone: "America/New_York",
 });
 
+// Retention enforcement is automatic — the BudgetManager prunes
+// events older than `retentionDays` on the first budget check of a
+// process and on each subsequent day rollover. The call below is an
+// escape hatch for hosts that want to prune on demand (e.g. tests,
+// migrations).
 await pipeline.pruneBudgetEvents();
 ```
 

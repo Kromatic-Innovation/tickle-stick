@@ -39,6 +39,11 @@ const stageSchema = z.object({
   systemPrompt: z.string().optional(),
   prompt: z.string().optional(),
   confidenceThreshold: z.number().min(0).max(1).optional(),
+  // pricing — defaults match Haiku 3.5 / 4o-mini input/output rates
+  costPerInputToken: z.number().nonnegative().optional(),
+  costPerOutputToken: z.number().nonnegative().optional(),
+  /** Cost charged per classification when the provider does not return tokenUsage. */
+  defaultCostEstimate: z.number().nonnegative().optional(),
   // filtering
   input: inputFilterSchema.optional(),
   // post-hook

@@ -67,11 +67,16 @@ export class BudgetManager {
 
     const today = this.getToday();
 
-    // Reset alert dedup on new day
+    // Reset alert dedup on new day; also auto-prune retention-expired events.
+    // Fires on first checkBudget() and on each subsequent day rollover. The
+    // manual escape hatch (pipeline.pruneBudgetEvents()) is still available.
     if (today !== this.currentDay) {
       this.alertsSent.clear();
       this.currentDay = today;
       this.exceeded = false;
+      this.prune().catch(() => {
+        /* best-effort retention enforcement; do not block budget checks */
+      });
     }
 
     const dayStart = this.getDayStart();

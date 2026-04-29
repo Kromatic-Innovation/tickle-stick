@@ -223,6 +223,34 @@ describe("BudgetManager", () => {
     expect(storage.events.length).toBe(1);
   });
 
+  it("auto-prunes on first checkBudget and on day rollover (L8)", async () => {
+    const mgr = new BudgetManager({
+      config: makeConfig({ retentionDays: 1 }),
+      storage,
+    });
+
+    const old = makeEvent(0.01);
+    old.timestamp = new Date(Date.now() - 2 * 86400000).toISOString();
+    storage.events.push(old);
+
+    await mgr.record(makeEvent(0.01));
+    // Allow the best-effort prune microtask to settle
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(storage.prune).toHaveBeenCalledTimes(1);
+
+    // Same-day record() should NOT trigger another prune
+    await mgr.record(makeEvent(0.01));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(storage.prune).toHaveBeenCalledTimes(1);
+
+    // Day rollover via test helper → next record() triggers prune again
+    mgr._resetAlerts();
+    await mgr.record(makeEvent(0.01));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(storage.prune).toHaveBeenCalledTimes(2);
+  });
+
   it("resets alerts on new day", async () => {
     const mgr = new BudgetManager({
       config: makeConfig({
