@@ -155,4 +155,39 @@ describe("Tier 1: Classification", () => {
 
     expect(classified.tier1Response).toBe("Nothing important");
   });
+
+  it("uses custom per-token rates from stage config (L5)", async () => {
+    const provider = mockProvider({
+      classification: "routine",
+      confidence: 0.9,
+      tokenUsage: { input: 1000, output: 500 },
+    });
+    const { costEstimate } = await classifyItem(
+      makeItem("test"),
+      {
+        ...stageConfig,
+        // 10× the default Haiku/4o-mini rates → easy to verify
+        costPerInputToken: 0.0000025,
+        costPerOutputToken: 0.0000125,
+      },
+      provider,
+    );
+
+    // 1000 * 0.0000025 + 500 * 0.0000125 = 0.0025 + 0.00625 = 0.00875
+    expect(costEstimate).toBeCloseTo(0.00875, 6);
+  });
+
+  it("uses custom defaultCostEstimate when provider returns no tokenUsage (L5)", async () => {
+    const provider = mockProvider({
+      classification: "routine",
+      confidence: 0.9,
+    });
+    const { costEstimate } = await classifyItem(
+      makeItem("test"),
+      { ...stageConfig, defaultCostEstimate: 0.005 },
+      provider,
+    );
+
+    expect(costEstimate).toBe(0.005);
+  });
 });
