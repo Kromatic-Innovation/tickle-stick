@@ -38,6 +38,13 @@ export interface PipelineOptions {
   stageCallbacks?: Record<string, StageCallback>;
   /** Called after each stage completes. */
   onStageComplete?: (name: string, result: StageResult) => void;
+  /**
+   * Called when a stage or post-hook throws. Errors are still swallowed
+   * (the pipeline continues), but consumers can observe them for telemetry
+   * or logging. `phase` distinguishes a stage body throw ("stage") from a
+   * post-hook throw ("post-hook").
+   */
+  onError?: (stage: string, err: unknown, phase: "stage" | "post-hook") => void;
   /** Custom log sink. */
   logSink?: LogSink;
   /** Storage adapter for budget tracking. */
@@ -142,6 +149,7 @@ export class Pipeline {
   private readonly budgetManager: BudgetManager | null;
   private readonly stageCallbacks: Record<string, StageCallback>;
   private readonly onStageComplete: PipelineOptions["onStageComplete"];
+  private readonly onError: PipelineOptions["onError"];
 
   constructor(options: PipelineOptions) {
     this.name = options.name;
@@ -154,6 +162,7 @@ export class Pipeline {
     this.provider = options.triageProvider ?? null;
     this.stageCallbacks = options.stageCallbacks ?? {};
     this.onStageComplete = options.onStageComplete;
+    this.onError = options.onError;
 
     this.budgetManager = options.budgetConfig
       ? new BudgetManager({
@@ -197,8 +206,9 @@ export class Pipeline {
             await this.runCallbackStage(stage, context, stageResult);
             break;
         }
-      } catch {
-        // Stage errors don't fail the pipeline
+      } catch (err) {
+        // Stage errors don't fail the pipeline; surface to onError observers
+        this.onError?.(stage.name, err, "stage");
       }
 
       stageResult.latencyMs = performance.now() - stageStart;
@@ -230,8 +240,9 @@ export class Pipeline {
             hookInput,
             stage.postHook.timeout,
           );
-        } catch {
-          // Post-hook errors don't fail the pipeline
+        } catch (err) {
+          // Post-hook errors don't fail the pipeline; surface to onError observers
+          this.onError?.(stage.name, err, "post-hook");
         }
       }
 

@@ -1,3 +1,13 @@
+/** Classification produced by a cheap model triage stage. */
+export type Classification = "routine" | "urgent" | "needs-reasoning";
+
+/** Allowed classification values, exposed as a runtime tuple for validation. */
+export const CLASSIFICATIONS = [
+  "routine",
+  "urgent",
+  "needs-reasoning",
+] as const satisfies readonly Classification[];
+
 /** A work item produced by a script stage or external source. */
 export interface WorkItem {
   id: string;
@@ -11,7 +21,7 @@ export interface WorkItem {
 
 /** Classification result from a cheap model stage. */
 export interface ClassifiedItem extends WorkItem {
-  classification: "routine" | "urgent" | "needs-reasoning";
+  classification: Classification;
   confidence: number;
   tier1Response?: string;
 }
@@ -37,7 +47,7 @@ export interface PipelineResult {
 
 /** Raw classification from a model provider. */
 export interface ClassificationResult {
-  classification: "routine" | "urgent" | "needs-reasoning";
+  classification: Classification;
   response?: string;
   confidence: number;
   tokenUsage?: { input: number; output: number };

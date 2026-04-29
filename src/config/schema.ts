@@ -1,4 +1,24 @@
 import { z } from "zod";
+import { CLASSIFICATIONS } from "../types.js";
+
+const inputFilterSchema = z.string().refine(
+  (s) => {
+    if (s === "all") return true;
+    const tokens = s
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+    if (tokens.length === 0) return false;
+    return tokens.every((t) => {
+      if (!t.startsWith("classified:")) return false;
+      const value = t.slice("classified:".length);
+      return (CLASSIFICATIONS as readonly string[]).includes(value);
+    });
+  },
+  {
+    message: `StageConfig.input must be "all" or a comma-separated list of "classified:<value>" tokens (values: ${CLASSIFICATIONS.join("|")})`,
+  },
+);
 
 const postHookSchema = z.object({
   command: z.string(),
@@ -20,7 +40,7 @@ const stageSchema = z.object({
   prompt: z.string().optional(),
   confidenceThreshold: z.number().min(0).max(1).optional(),
   // filtering
-  input: z.string().optional(),
+  input: inputFilterSchema.optional(),
   // post-hook
   postHook: postHookSchema.optional(),
 });
