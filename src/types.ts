@@ -51,6 +51,10 @@ export interface ClassificationResult {
   response?: string;
   confidence: number;
   tokenUsage?: { input: number; output: number };
+  /** Provider identifier (e.g. "anthropic", "openai"); set by the provider implementation. */
+  provider?: string;
+  /** Model identifier (e.g. "claude-haiku-4-5"); set by the provider implementation. */
+  model?: string;
 }
 
 /** Provider for cheap model classification. Host injects implementation.

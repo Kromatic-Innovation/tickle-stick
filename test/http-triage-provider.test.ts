@@ -94,6 +94,29 @@ describe("HttpTriageProvider", () => {
       expect(result.tokenUsage).toEqual({ input: 50, output: 20 });
     });
 
+    it("populates provider and model identifiers on the result", async () => {
+      mockFetchResponse({
+        choices: [
+          {
+            message: {
+              content:
+                '{"classification":"routine","response":"Normal","confidence":0.9}',
+            },
+          },
+        ],
+        usage: { prompt_tokens: 50, completion_tokens: 20 },
+      });
+
+      const provider = makeProvider({
+        provider: "openai",
+        model: "gpt-4o-mini",
+      });
+      const result = await provider.classify("hello", "Classify this.");
+
+      expect(result.provider).toBe("openai");
+      expect(result.model).toBe("gpt-4o-mini");
+    });
+
     it("uses custom baseUrl", async () => {
       mockFetchResponse({
         choices: [

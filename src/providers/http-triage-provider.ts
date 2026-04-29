@@ -53,6 +53,8 @@ export class HttpTriageProvider implements TriageProvider {
       const responseText = this.extractText(body);
       const decision = parseClassificationResponse(responseText);
       decision.tokenUsage = this.extractTokenUsage(body);
+      decision.provider = this.options.provider;
+      decision.model = this.options.model;
       return decision;
     } catch {
       return { classification: "needs-reasoning", confidence: 0 };

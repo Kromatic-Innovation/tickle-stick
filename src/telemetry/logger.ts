@@ -11,6 +11,14 @@ export interface TelemetryEvent {
   costEstimate: number;
   confidence?: number;
   timestamp: string;
+  /** Identifier of the model provider, e.g. "anthropic" or "openai". */
+  provider?: string;
+  /** Model identifier as reported by the provider, e.g. "claude-haiku-4-5". */
+  model?: string;
+  /** Input token count from the provider's usage payload. */
+  tokensIn?: number;
+  /** Output token count from the provider's usage payload. */
+  tokensOut?: number;
   metadata?: Record<string, unknown>;
 }
 

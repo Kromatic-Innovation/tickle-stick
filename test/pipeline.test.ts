@@ -405,6 +405,84 @@ describe("Pipeline", () => {
     expect(onError).toHaveBeenCalledWith("bad", expect.any(Error), "stage");
   });
 
+  it("emits TelemetryEvents carrying provider/model/tokensIn/tokensOut from the cheap-model stage", async () => {
+    const provider: TriageProvider = {
+      name: "mock-anthropic",
+      classify: vi.fn().mockResolvedValue({
+        classification: "routine",
+        response: "ok",
+        confidence: 0.9,
+        tokenUsage: { input: 100, output: 25 },
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+      }),
+    };
+    const events: Array<Record<string, unknown>> = [];
+    const pipeline = makePipelineWithItems(sampleItems, {
+      stages: [
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ],
+      provider,
+    });
+    // Re-construct with a custom logSink to capture emitted events
+    const captured = new Pipeline({
+      name: "telemetry-capture",
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "node",
+          args: [
+            "-e",
+            `process.stdout.write(${JSON.stringify(
+              JSON.stringify(
+                sampleItems.map((i) => ({
+                  ...i,
+                  timestamp: i.timestamp.toISOString(),
+                })),
+              ),
+            )})`,
+          ],
+          timeout: 5000,
+        },
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ]),
+      telemetry: { enabled: true, format: "json" },
+      logSink: (e) => {
+        events.push(e as unknown as Record<string, unknown>);
+      },
+      triageProvider: provider,
+    });
+
+    await captured.run();
+    // Reference unused variable to satisfy lint:
+    expect(pipeline).toBeDefined();
+
+    const classifyEvents = events.filter(
+      (e) => e.tier === 1 && e.action === "routine",
+    );
+    expect(classifyEvents.length).toBeGreaterThan(0);
+    const first = classifyEvents[0];
+    expect(first.provider).toBe("anthropic");
+    expect(first.model).toBe("claude-haiku-4-5");
+    expect(first.tokensIn).toBe(100);
+    expect(first.tokensOut).toBe(25);
+  });
+
   it("accepts expensiveStageProvider and routes by stage name (L9)", async () => {
     const callback = vi.fn().mockResolvedValue("Provider routed result");
     const pipeline = makePipelineWithItems(sampleItems, {
