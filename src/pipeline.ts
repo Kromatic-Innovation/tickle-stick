@@ -2,6 +2,7 @@ import type {
   AlertSink,
   BudgetStatus,
   ClassifiedItem,
+  ExpensiveStageProvider,
   PipelineResult,
   StageCallback,
   StageResult,
@@ -32,9 +33,18 @@ export interface PipelineOptions {
   config: PipelineConfigEntry;
   /** Telemetry configuration. */
   telemetry?: TelemetryConfig;
-  /** Provider for cheap model stages. */
+  /** Provider for cheap-model stages. */
   triageProvider?: TriageProvider;
-  /** Callbacks for expensive model and callback stages, keyed by stage name. */
+  /**
+   * Provider for expensive-model and callback stages. Symmetric with
+   * {@link triageProvider}; structurally a `Record<string, StageCallback>`
+   * keyed by stage name.
+   */
+  expensiveStageProvider?: ExpensiveStageProvider;
+  /**
+   * @deprecated Use {@link expensiveStageProvider}. Kept for 0.4.x
+   * compatibility; will be removed in 1.0.
+   */
   stageCallbacks?: Record<string, StageCallback>;
   /** Called after each stage completes. */
   onStageComplete?: (name: string, result: StageResult) => void;
@@ -160,7 +170,8 @@ export class Pipeline {
     );
     this.metrics = new MetricsCollector();
     this.provider = options.triageProvider ?? null;
-    this.stageCallbacks = options.stageCallbacks ?? {};
+    this.stageCallbacks =
+      options.expensiveStageProvider ?? options.stageCallbacks ?? {};
     this.onStageComplete = options.onStageComplete;
     this.onError = options.onError;
 

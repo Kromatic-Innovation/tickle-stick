@@ -21,13 +21,14 @@ describe("parseClassificationResponse", () => {
     expect(result.confidence).toBe(0.8);
   });
 
-  it("maps legacy human classification to needs-reasoning", () => {
+  it("rejects unknown classification (legacy 'human' shim removed in 0.4.x → 1.0)", () => {
     const result = parseClassificationResponse(
       'Here is my classification:\n{"classification": "human", "confidence": 0.9}\nDone.',
     );
 
+    // "human" is no longer mapped — falls through to the safe default.
     expect(result.classification).toBe("needs-reasoning");
-    expect(result.confidence).toBe(0.9);
+    expect(result.confidence).toBe(0);
   });
 
   it("returns needs-reasoning with confidence 0 for invalid JSON", () => {
