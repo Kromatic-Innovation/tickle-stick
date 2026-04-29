@@ -5,6 +5,71 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] — 2026-04-29
+
+### Added
+
+- **`Classification` type alias** and runtime `CLASSIFICATIONS` tuple
+  exposed from `src/index.ts` so consumers can write exhaustive `switch`
+  statements over `"routine" | "urgent" | "needs-reasoning"`. (#39 / #34)
+- **`PipelineOptions.onError?: (stage, err, phase) => void`** — observe
+  silent stage and post-hook errors that the pipeline still swallows.
+  Phase distinguishes `"stage"` from `"post-hook"`. (#39 / #34)
+- **`StageConfig.costPerInputToken` / `.costPerOutputToken` /
+  `.defaultCostEstimate`** — configurable per-token pricing, replacing
+  the hardcoded Haiku/4o-mini constants. Defaults match the previous
+  values so existing 0.x consumers see no behavior change. (#40 / #34)
+- **`ExpensiveStageProvider`** type alias and
+  `PipelineOptions.expensiveStageProvider` — symmetric counterpart to
+  `triageProvider`. Same `Record<string, StageCallback>` shape; new name
+  for parity. (#41 / #34)
+- **`TelemetryEvent.provider` / `.model` / `.tokensIn` / `.tokensOut`** —
+  optional fields populated automatically by `HttpTriageProvider` and
+  threaded through `classifyItem` → `StageRouter.runCheapModel.emit`.
+  Lets `StorageAdapter.writeEvent` consumers record per-API-call cost
+  rows with full provider context. (#43)
+
+### Changed
+
+- **`StageConfig.input` filter validation** — Zod schema now rejects
+  unrecognized filter strings instead of silently falling through to
+  "all items". Valid forms: `"all"` or comma-separated
+  `"classified:<value>"` tokens (values from `CLASSIFICATIONS`). (#39)
+- **Auto-prune budget retention** — `BudgetManager` prunes
+  retention-expired events automatically on the first `checkBudget()`
+  of a process and on each subsequent day rollover.
+  `pipeline.pruneBudgetEvents()` remains as a manual escape hatch. (#40)
+- **`Pipeline` class split** — orchestration logic stays in
+  `src/pipeline.ts` (231 lines, down from 489); per-stage execution
+  moves to `src/pipeline/stage-router.ts`; helpers move to
+  `src/pipeline/context.ts` and `src/pipeline/prompt-interpolator.ts`.
+  No public-API changes. (#42 / #34)
+
+### Removed
+
+- **Legacy `"human"` classification shim** — removed from
+  `parseClassificationResponse`. The pre-0.3 back-compat mapping is
+  gone; `"human"` responses now hit the safe-default fallback
+  (`needs-reasoning`, `confidence: 0`) like any other unknown value.
+  Consumers still emitting `"human"` must update prompts to
+  `"needs-reasoning"`. (#41)
+- **Public exports of internal plumbing** — `BudgetManager`,
+  `MetricsCollector`, `runScript`, `runPostHook`, `createLogger`, and
+  `BudgetManagerOptions` are no longer re-exported from `src/index.ts`.
+  Pre-flight grep across the workspace confirmed no consumer imports
+  any of these from `tickle-stick`. (#41)
+
+### Deprecated
+
+- **`PipelineOptions.stageCallbacks`** — use `expensiveStageProvider`
+  (same shape, parity name). The old field is kept for 0.4.x
+  compatibility and will be removed in 1.0. (#41)
+
+## [0.4.1] — 2026-04-26
+
+CI infrastructure release — re-tag for trusted-publishing retry. No
+behavior changes from `0.4.0`.
+
 ## [0.4.0] — 2026-04-26
 
 ### Added
