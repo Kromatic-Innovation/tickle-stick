@@ -190,4 +190,24 @@ describe("Tier 1: Classification", () => {
 
     expect(costEstimate).toBe(0.005);
   });
+
+  it("returns tokensIn / tokensOut / provider / model from the provider result", async () => {
+    const provider: TriageProvider = {
+      name: "mock",
+      classify: vi.fn().mockResolvedValue({
+        classification: "routine",
+        response: "ok",
+        confidence: 0.9,
+        tokenUsage: { input: 123, output: 45 },
+        provider: "anthropic",
+        model: "claude-haiku-4-5",
+      }),
+    };
+    const out = await classifyItem(makeItem("test"), stageConfig, provider);
+
+    expect(out.tokensIn).toBe(123);
+    expect(out.tokensOut).toBe(45);
+    expect(out.provider).toBe("anthropic");
+    expect(out.model).toBe("claude-haiku-4-5");
+  });
 });

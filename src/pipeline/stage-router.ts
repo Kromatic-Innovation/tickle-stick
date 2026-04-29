@@ -189,6 +189,10 @@ export class StageRouter {
           classified: ci,
           costEstimate,
           latencyMs,
+          tokensIn,
+          tokensOut,
+          provider,
+          model,
         } = await classifyItem(item, stage, this.provider);
         classified.push(ci);
         result.costEstimate += costEstimate;
@@ -202,6 +206,10 @@ export class StageRouter {
           latencyMs,
           costEstimate,
           confidence: ci.confidence,
+          provider,
+          model,
+          tokensIn,
+          tokensOut,
         });
       } catch {
         // Classification failed → escalate to needs-reasoning

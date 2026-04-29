@@ -22,6 +22,10 @@ export async function classifyItem(
   classified: ClassifiedItem;
   costEstimate: number;
   latencyMs: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  provider?: string;
+  model?: string;
 }> {
   const start = performance.now();
 
@@ -70,5 +74,13 @@ export async function classifyItem(
     tier1Response: result.response,
   };
 
-  return { classified, costEstimate, latencyMs };
+  return {
+    classified,
+    costEstimate,
+    latencyMs,
+    tokensIn: result.tokenUsage?.input,
+    tokensOut: result.tokenUsage?.output,
+    provider: result.provider,
+    model: result.model,
+  };
 }
