@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { Pipeline } from "../src/pipeline.js";
 import type { PipelineConfigEntry } from "../src/config/schema.js";
-import type { WorkItem, TriageProvider } from "../src/types.js";
+import type { Classification, WorkItem, TriageProvider } from "../src/types.js";
 
 function makeConfig(
   stages: PipelineConfigEntry["stages"],
@@ -10,7 +10,7 @@ function makeConfig(
 }
 
 function mockProvider(
-  classification: "routine" | "urgent" | "needs-reasoning" = "routine",
+  classification: Classification = "routine",
   confidence = 0.9,
 ): TriageProvider {
   return {
@@ -360,5 +360,48 @@ describe("Pipeline", () => {
       "gather",
       expect.objectContaining({ name: "gather", type: "script" }),
     );
+  });
+
+  it("invokes onError when a stage callback throws and continues the pipeline", async () => {
+    const onError = vi.fn();
+    const stageCallbacks = {
+      bad: vi.fn().mockRejectedValue(new Error("stage boom")),
+    };
+    const pipeline = makePipelineWithItems(sampleItems, {
+      stages: [
+        {
+          name: "bad",
+          type: "model",
+          provider: "expensive",
+          prompt: "Synthesize: {{items}}",
+          timeout: 30000,
+        },
+      ],
+      stageCallbacks,
+    });
+    // makePipelineWithItems doesn't take onError, so set it on a manual run
+    const result = await pipeline.run();
+
+    expect(result.stageResults).toHaveLength(2);
+    // The pipeline still completes; manual onError verification:
+    const onErrorPipeline = new Pipeline({
+      name: "onError-test",
+      config: makeConfig([
+        {
+          name: "bad",
+          type: "callback",
+          timeout: 5000,
+        },
+      ]),
+      telemetry: { enabled: false, format: "json" },
+      stageCallbacks: {
+        bad: vi.fn().mockRejectedValue(new Error("stage boom")),
+      },
+      onError,
+    });
+
+    await onErrorPipeline.run();
+
+    expect(onError).toHaveBeenCalledWith("bad", expect.any(Error), "stage");
   });
 });

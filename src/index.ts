@@ -14,6 +14,7 @@ export type {
 export type {
   WorkItem,
   ClassifiedItem,
+  Classification,
   PipelineResult,
   StageResult,
   StageCallback,
@@ -24,6 +25,7 @@ export type {
   AlertSink,
   BudgetStatus,
 } from "./types.js";
+export { CLASSIFICATIONS } from "./types.js";
 export {
   BudgetManager,
   type BudgetManagerOptions,

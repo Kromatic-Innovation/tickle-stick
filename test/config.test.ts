@@ -400,3 +400,53 @@ describe("Default Config", () => {
     expect(DEFAULT_CONFIG.tickleStick.telemetry.enabled).toBe(true);
   });
 });
+
+describe("StageConfig.input filter validation", () => {
+  function buildWithInput(input: string) {
+    return {
+      tickleStick: {
+        pipelines: {
+          test: {
+            stages: [
+              {
+                name: "filter",
+                type: "callback" as const,
+                input,
+              },
+            ],
+          },
+        },
+      },
+    };
+  }
+
+  it("accepts 'all'", () => {
+    expect(() =>
+      tickleStickConfigSchema.parse(buildWithInput("all")),
+    ).not.toThrow();
+  });
+
+  it.each([
+    "classified:routine",
+    "classified:urgent",
+    "classified:needs-reasoning",
+    "classified:needs-reasoning,classified:urgent",
+    "classified:routine, classified:urgent",
+  ])("accepts valid filter %s", (input) => {
+    expect(() =>
+      tickleStickConfigSchema.parse(buildWithInput(input)),
+    ).not.toThrow();
+  });
+
+  it.each([
+    "garbage",
+    "classified:bogus",
+    "tier:1",
+    "classified:routine,bogus",
+    "",
+  ])("rejects invalid filter %s", (input) => {
+    expect(() =>
+      tickleStickConfigSchema.parse(buildWithInput(input)),
+    ).toThrow();
+  });
+});
