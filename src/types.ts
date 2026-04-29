@@ -77,6 +77,15 @@ export type StageCallback = (
   prompt: string,
 ) => Promise<string>;
 
+/**
+ * Provider for expensive-model and callback stages. Symmetric counterpart
+ * to {@link TriageProvider}: where `TriageProvider` handles cheap-model
+ * classification, `ExpensiveStageProvider` routes expensive-model and
+ * callback stages to their handlers, keyed by stage name. Hosts inject
+ * one entry per expensive stage.
+ */
+export type ExpensiveStageProvider = Record<string, StageCallback>;
+
 /** Storage adapter for persisting pipeline events. Host provides implementation. */
 export interface StorageAdapter {
   writeEvent(
