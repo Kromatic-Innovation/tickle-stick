@@ -32,3 +32,4 @@ credentials.json
 
 # Claude Code local settings (user-level, not committed)
 .claude/settings.local.json
+.zenodotus/
