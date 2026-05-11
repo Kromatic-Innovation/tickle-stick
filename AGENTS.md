@@ -41,3 +41,30 @@ Read `spec.md` for scope, `plan.md` for architecture, `contracts/` for interface
 - Zod for runtime validation
 - YAML config with env var interpolation
 - Structured JSON logging for telemetry
+
+## Release process
+
+Tickle-stick is slated for OSS release in 2026. The published surface
+includes the wheel/package itself **and** its installation hooks (cron,
+services, launchd) — release review must walk the install path, not just
+the code.
+
+Before any release tag (`vX.Y.Z`):
+
+1. Confirm `develop` is at the intended release-candidate tip.
+2. Run the workspace `/zenodotus` skill against this repo:
+   ```
+   /zenodotus --repo . --ref develop --version <X.Y.Z> --prior-tag <vA.B.C>
+   ```
+3. Zenodotus spawns a 4-persona no-context reviewer panel
+   (drive-by installer, production evaluator, maintainer's maintainer,
+   drive-by contributor) and writes a verdict to
+   `.zenodotus/<version>/verdict.md`.
+   - **Pass** → use the drafted `.zenodotus/<version>/tag-message.md` as
+     the tag body; create `git tag vX.Y.Z` and push.
+   - **Conditional** / **Fail** → fix the must-fix items on `develop`,
+     re-run `/zenodotus`.
+4. Tagging stays human-triggered. Zenodotus does not run `git tag`.
+
+The `.zenodotus/` directory is gitignored — verdict artifacts are local
+record, not durable repo state.
