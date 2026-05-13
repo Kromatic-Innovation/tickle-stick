@@ -1,0 +1,66 @@
+# Dependabot version updates and security PRs.
+# See docs/security-posture.md for the threat model and auto-merge policy.
+# SECURITY.md (top-level) is the public vulnerability-reporting policy.
+#
+# tickle-stick is an OSS npm library — minimal runtime deps (yaml + zod).
+# Hold list is small and focused.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    groups:
+      npm-patch:
+        update-types:
+          - "patch"
+      npm-minor:
+        update-types:
+          - "minor"
+      runtime-stack:
+        patterns:
+          - "yaml"
+          - "zod"
+        update-types:
+          - "major"
+      typescript-stack:
+        patterns:
+          - "typescript"
+          - "@types/node"
+        update-types:
+          - "major"
+      eslint-stack:
+        patterns:
+          - "eslint"
+          - "@eslint/*"
+          - "@typescript-eslint/*"
+        update-types:
+          - "major"
+      vitest-stack:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+        update-types:
+          - "major"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    groups:
+      actions-patch:
+        update-types:
+          - "patch"
+      actions-minor:
+        update-types:
+          - "minor"
