@@ -33,3 +33,8 @@ credentials.json
 # Claude Code local settings (user-level, not committed)
 .claude/settings.local.json
 .zenodotus/
+
+# Derived from ~/Code/docs/project-registry.yaml by
+# scripts/derive_repo_configs.py — local artifacts, never committed.
+.agents/
+.codex/
