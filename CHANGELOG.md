@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.2] — 2026-04-29
 
+> **Breaking under pre-1.0 SemVer.** Despite the patch-level version digit,
+> this release removes public exports and a parser behavior (see **Removed**
+> below). Per [SemVer §4](https://semver.org/#spec-item-4), `0.x` releases
+> make no stability guarantee and a `0.x` consumer should treat any minor or
+> patch bump as potentially breaking. The patch digit is a deliberate 0.x
+> exception, not a signal that this is a drop-in upgrade — review **Removed**
+> and **Deprecated** before upgrading.
+
 ### Added
 
 - **`Classification` type alias** and runtime `CLASSIFICATIONS` tuple
@@ -155,4 +163,7 @@ stabilization in
   489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
   prune, asymmetric provider API.
 
+[0.4.2]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.2
+[0.4.1]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.1
+[0.4.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.3.0

@@ -123,7 +123,7 @@ const pipeline = new Pipeline({
     ],
   },
   triageProvider,
-  stageCallbacks: {
+  expensiveStageProvider: {
     reason: async (items) => `reasoned ${items.length} item(s)`,
     deliver: async (items) => {
       console.log("delivered:", items.map((i) => i.summary).join(", "));
@@ -201,7 +201,7 @@ const pipeline = new Pipeline({
   name: "email-check",
   config: pipelineConfig,
   triageProvider,
-  stageCallbacks: {
+  expensiveStageProvider: {
     reason: async (items, prompt) => callYourReasoningModel(prompt),
     deliver: async (items) => {
       await sendToChannel(items.map((i) => i.summary).join("\n"));
@@ -274,9 +274,11 @@ The two kinds of `type: model` stage wire to different host-supplied mechanisms:
 - `provider: cheap` — uses the `triageProvider` option passed to `Pipeline`.
   The provider returns a structured `{classification, response, confidence}`
   triple. Single wiring point for every cheap-model stage.
-- `provider: expensive` — uses `stageCallbacks[stageName]`. The callback
-  receives filtered items and the rendered prompt; it returns a string.
-  Keyed by stage name so you can wire multiple expensive stages independently.
+- `provider: expensive` — uses `expensiveStageProvider[stageName]`. The
+  callback receives filtered items and the rendered prompt; it returns a
+  string. Keyed by stage name so you can wire multiple expensive stages
+  independently. (The legacy option name `stageCallbacks` is still honored
+  as a deprecated alias and will be removed in 1.0.)
 
 The asymmetry is deliberate: cheap stages share a classifier contract; expensive
 stages are free-form per-stage reasoning calls.
@@ -366,7 +368,7 @@ const pipeline = new Pipeline({
   name: "email-check",
   config: pipelineConfig,
   triageProvider: myProvider,
-  stageCallbacks: { reason: reasoningCallback },
+  expensiveStageProvider: { reason: reasoningCallback },
   storage,
   alertSink,
   budgetConfig: config.tickleStick.budget,
@@ -392,14 +394,15 @@ if (status) {
 }
 ```
 
-## Public-beta notice (0.3.x)
+## Public-beta notice (0.4.x)
 
-Tickle-stick 0.3.x is a **public beta**. The core pipeline contract
+Tickle-stick 0.4.x is a **public beta**. The core pipeline contract
 (`Pipeline`, `TriageProvider`, `StorageAdapter`, YAML schema) is stable,
 but a handful of internal-plumbing exports and config edge cases are still
-being narrowed before 1.0. See the
-[1.0 tracking issue](https://github.com/Kromatic-Innovation/tickle-stick/issues)
-(label `moscow:could`) for the full list.
+being narrowed before 1.0. Under pre-1.0 SemVer, treat any `0.x` bump as
+potentially breaking — see the [CHANGELOG](CHANGELOG.md) before upgrading.
+The [1.0 tracking issue](https://github.com/Kromatic-Innovation/tickle-stick/issues/34)
+has the full yellow-flag list.
 
 ## License
 
