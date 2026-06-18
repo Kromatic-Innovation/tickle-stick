@@ -21,6 +21,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "lint": "eslint src/ test/",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
@@ -52,6 +53,7 @@
     "@types/node": "^25.9.3",
     "@typescript-eslint/eslint-plugin": "^8.57.1",
     "@typescript-eslint/parser": "^8.57.1",
+    "@vitest/coverage-v8": "^4.1.9",
     "eslint": "^10.4.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
