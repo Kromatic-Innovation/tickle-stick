@@ -107,18 +107,33 @@ function parseScriptOutput(
       );
       return [];
     }
-    return parsed.map((item: Record<string, unknown>, i: number) => ({
-      id: String(item.id ?? `item-${i}`),
-      source: String(item.source ?? "unknown"),
-      type: String(item.type ?? "unknown"),
-      summary: String(item.summary ?? ""),
-      body: item.body != null ? String(item.body) : undefined,
-      metadata:
-        item.metadata != null
-          ? (item.metadata as Record<string, unknown>)
-          : undefined,
-      timestamp: item.timestamp ? new Date(String(item.timestamp)) : new Date(),
-    }));
+    const items: WorkItem[] = [];
+    parsed.forEach((raw: unknown, i: number) => {
+      // Skip a malformed element (null / primitive / array) rather than
+      // letting a property access on it throw and discard the whole batch.
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+        onError?.(
+          new Error(`script output element ${i} is not a WorkItem object; skipped`),
+        );
+        return;
+      }
+      const item = raw as Record<string, unknown>;
+      items.push({
+        id: String(item.id ?? `item-${i}`),
+        source: String(item.source ?? "unknown"),
+        type: String(item.type ?? "unknown"),
+        summary: String(item.summary ?? ""),
+        body: item.body != null ? String(item.body) : undefined,
+        metadata:
+          item.metadata != null
+            ? (item.metadata as Record<string, unknown>)
+            : undefined,
+        timestamp: item.timestamp
+          ? new Date(String(item.timestamp))
+          : new Date(),
+      });
+    });
+    return items;
   } catch (err) {
     onError?.(err);
     return [];

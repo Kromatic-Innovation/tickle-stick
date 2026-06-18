@@ -88,6 +88,22 @@ describe("runScript", () => {
     expect(items[2].source).toBe("github");
   });
 
+  it("skips malformed array elements instead of discarding the batch (P4-#8)", async () => {
+    const data = JSON.stringify([
+      { id: "a", source: "gmail", type: "email", summary: "ok" },
+      null,
+      42,
+      ["nested"],
+      { id: "b", source: "gmail", type: "email", summary: "also ok" },
+    ]);
+    const items = await runScript(
+      "node",
+      ["-e", `process.stdout.write(${JSON.stringify(data)})`],
+      5000,
+    );
+    expect(items.map((i) => i.id)).toEqual(["a", "b"]);
+  });
+
   it("preserves body and metadata when present", async () => {
     const data = JSON.stringify([
       {
