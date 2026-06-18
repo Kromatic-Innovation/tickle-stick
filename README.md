@@ -145,6 +145,11 @@ delivered: Hello world
 items=1 cost=$0.0010
 ```
 
+> Telemetry is on by default, so the real run also prints one structured JSON
+> line per stage to stdout around the two lines above. Pass
+> `telemetry: { enabled: false }` to the `Pipeline` (or a custom `logSink`) to
+> silence or redirect it.
+
 That's the full loop: script stage produces one item, the fake triage
 provider classifies it, the `reason` stage runs the callback, and the
 `deliver` callback prints the summary.

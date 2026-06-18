@@ -51,6 +51,9 @@ function zoneOffsetMs(instant: Date, timeZone: string): number {
  * zone offset — e.g. America/New_York counted spend from 20:00 the prior
  * local day. For `timeZone: "UTC"` this returns the identical
  * `…T00:00:00.000Z` value as before.
+ *
+ * @internal Exported only for unit tests; not part of the package's public
+ * API (intentionally not re-exported from `src/index.ts`).
  */
 export function startOfLocalDateUtc(
   localDate: string,
