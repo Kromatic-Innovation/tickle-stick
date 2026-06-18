@@ -103,6 +103,7 @@ export class Pipeline {
         options.expensiveStageProvider ?? options.stageCallbacks ?? {},
       budgetManager: this.budgetManager,
       emit: (partial) => this.emit(partial),
+      onError: this.onError,
     });
   }
 
@@ -142,9 +143,11 @@ export class Pipeline {
         tier: stageResults.length - 1,
         action:
           stage.type === "script"
-            ? context.allItems.length > 0
-              ? "found"
-              : "empty"
+            ? stageResult.errored
+              ? "error"
+              : context.allItems.length > 0
+                ? "found"
+                : "empty"
             : stage.name,
         latencyMs: stageResult.latencyMs,
         costEstimate: stageResult.costEstimate,

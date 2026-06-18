@@ -10,6 +10,7 @@ export function runScript(
   args: string[],
   timeout: number,
   cwd?: string,
+  onError?: (err: unknown) => void,
 ): Promise<WorkItem[]> {
   return new Promise((resolve) => {
     execFile(
@@ -18,10 +19,11 @@ export function runScript(
       { timeout, cwd, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
       (error, stdout) => {
         if (error) {
+          onError?.(error);
           resolve([]);
           return;
         }
-        resolve(parseScriptOutput(stdout));
+        resolve(parseScriptOutput(stdout, onError));
       },
     );
   });
@@ -38,6 +40,7 @@ export function runPipedScript(
   timeout: number,
   stdinData: string,
   cwd?: string,
+  onError?: (err: unknown) => void,
 ): Promise<WorkItem[]> {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
@@ -60,15 +63,22 @@ export function runPipedScript(
 
     child.on("close", (code) => {
       clearTimeout(timer);
-      if (timedOut || code !== 0) {
+      if (timedOut) {
+        onError?.(new Error(`piped script timed out after ${timeout}ms`));
         resolve([]);
         return;
       }
-      resolve(parseScriptOutput(stdout));
+      if (code !== 0) {
+        onError?.(new Error(`piped script exited with code ${code}`));
+        resolve([]);
+        return;
+      }
+      resolve(parseScriptOutput(stdout, onError));
     });
 
-    child.on("error", () => {
+    child.on("error", (err) => {
       clearTimeout(timer);
+      onError?.(err);
       resolve([]);
     });
 
@@ -83,12 +93,20 @@ export function runPipedScript(
   });
 }
 
-function parseScriptOutput(stdout: string): WorkItem[] {
+function parseScriptOutput(
+  stdout: string,
+  onError?: (err: unknown) => void,
+): WorkItem[] {
   const trimmed = stdout.trim();
   if (!trimmed) return [];
   try {
     const parsed = JSON.parse(trimmed) as unknown;
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) {
+      onError?.(
+        new Error("script output was valid JSON but not a WorkItem[] array"),
+      );
+      return [];
+    }
     return parsed.map((item: Record<string, unknown>, i: number) => ({
       id: String(item.id ?? `item-${i}`),
       source: String(item.source ?? "unknown"),
@@ -101,7 +119,8 @@ function parseScriptOutput(stdout: string): WorkItem[] {
           : undefined,
       timestamp: item.timestamp ? new Date(String(item.timestamp)) : new Date(),
     }));
-  } catch {
+  } catch (err) {
+    onError?.(err);
     return [];
   }
 }

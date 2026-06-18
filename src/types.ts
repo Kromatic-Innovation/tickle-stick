@@ -34,6 +34,13 @@ export interface StageResult {
   output?: string;
   costEstimate: number;
   latencyMs: number;
+  /**
+   * True when a script stage's command failed (timeout, non-zero exit,
+   * spawn error, or non-WorkItem[] output). Lets consumers distinguish a
+   * failed gather from a legitimately empty one — both still yield zero
+   * items. Paired with the `onError` callback for the failure detail.
+   */
+  errored?: boolean;
 }
 
 /** Result of processing work items through the pipeline. */
