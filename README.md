@@ -394,9 +394,9 @@ if (status) {
 }
 ```
 
-## Public-beta notice (0.4.x)
+## Public-beta notice (0.5.x)
 
-Tickle-stick 0.4.x is a **public beta**. The core pipeline contract
+Tickle-stick 0.5.x is a **public beta**. The core pipeline contract
 (`Pipeline`, `TriageProvider`, `StorageAdapter`, YAML schema) is stable,
 but a handful of internal-plumbing exports and config edge cases are still
 being narrowed before 1.0. Under pre-1.0 SemVer, treat any `0.x` bump as
