@@ -19,6 +19,12 @@ export interface StageRouterOptions {
   stageCallbacks: ExpensiveStageProvider;
   budgetManager: BudgetManager | null;
   emit: (partial: Omit<TelemetryEvent, "event" | "timestamp">) => void;
+  /** Surfaced when a script stage's command fails (see StageResult.errored). */
+  onError?: (
+    stage: string,
+    err: unknown,
+    phase: "stage" | "post-hook",
+  ) => void;
 }
 
 /**
@@ -36,6 +42,7 @@ export class StageRouter {
   private readonly stageCallbacks: ExpensiveStageProvider;
   private readonly budgetManager: BudgetManager | null;
   private readonly emit: StageRouterOptions["emit"];
+  private readonly onError: StageRouterOptions["onError"];
 
   constructor(options: StageRouterOptions) {
     this.pipelineName = options.pipelineName;
@@ -43,6 +50,7 @@ export class StageRouter {
     this.stageCallbacks = options.stageCallbacks;
     this.budgetManager = options.budgetManager;
     this.emit = options.emit;
+    this.onError = options.onError;
   }
 
   async runStage(
@@ -94,6 +102,11 @@ export class StageRouter {
   ): Promise<void> {
     if (!stage.command) return;
 
+    const reportError = (err: unknown): void => {
+      result.errored = true;
+      this.onError?.(stage.name, err, "stage");
+    };
+
     if (stage.input) {
       const inputItems = applyInputFilter(stage.input, context);
       if (inputItems.length === 0) return;
@@ -121,6 +134,7 @@ export class StageRouter {
         stage.timeout,
         stdinData,
         stage.cwd,
+        reportError,
       );
 
       if (enriched.length > 0) {
@@ -152,6 +166,7 @@ export class StageRouter {
         stage.args,
         stage.timeout,
         stage.cwd,
+        reportError,
       );
       context.allItems.push(...items);
       result.items = items;

@@ -7,10 +7,24 @@ const ENV_VAR_PATTERN = /\$\{([^}]+)\}/g;
 const FILE_REF_PREFIX = "$file:";
 
 function interpolateEnvVars(content: string): string {
-  return content.replace(ENV_VAR_PATTERN, (_match, varName: string) => {
+  const missing = new Set<string>();
+  const result = content.replace(ENV_VAR_PATTERN, (_match, varName: string) => {
     const value = process.env[varName];
-    return value ?? "";
+    if (value === undefined) {
+      missing.add(varName);
+      return "";
+    }
+    return value;
   });
+  if (missing.size > 0) {
+    // Substituting empty string for an undefined var can silently produce an
+    // empty command/path/credential. Keep the (non-breaking) empty-string
+    // behavior but warn so the misconfiguration is visible.
+    process.stderr.write(
+      `[tickle-stick] config references undefined env var(s): ${[...missing].join(", ")} — substituted empty string\n`,
+    );
+  }
+  return result;
 }
 
 /**

@@ -494,6 +494,54 @@ describe("Multi-stage pipeline", () => {
     expect(result.stageResults).toHaveLength(2);
   });
 
+  it("surfaces script-stage failures via onError and marks the stage errored (P2-#4)", async () => {
+    const onError = vi.fn();
+
+    const pipeline = new Pipeline({
+      name: "script-fail",
+      config: {
+        stages: [
+          { name: "gather", type: "script", command: "false", args: [], timeout: 5000 },
+        ],
+      },
+      telemetry: { enabled: false, format: "json" },
+      onError,
+    });
+
+    const result = await pipeline.run();
+
+    // A failed gather still yields zero items — but is no longer
+    // indistinguishable from a legitimately empty one.
+    expect(result.totalItems).toBe(0);
+    expect(result.stageResults[0].errored).toBe(true);
+    expect(onError).toHaveBeenCalledTimes(1);
+    const [stageName, err, phase] = onError.mock.calls[0];
+    expect(stageName).toBe("gather");
+    expect(err).toBeInstanceOf(Error);
+    expect(phase).toBe("stage");
+  });
+
+  it("does not mark a legitimately empty script stage as errored (P2-#4)", async () => {
+    const onError = vi.fn();
+
+    const pipeline = new Pipeline({
+      name: "script-empty",
+      config: {
+        stages: [
+          { name: "gather", type: "script", command: "echo", args: ["[]"], timeout: 5000 },
+        ],
+      },
+      telemetry: { enabled: false, format: "json" },
+      onError,
+    });
+
+    const result = await pipeline.run();
+
+    expect(result.totalItems).toBe(0);
+    expect(result.stageResults[0].errored).toBeFalsy();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("early-exits when first script stage returns no items", async () => {
     const stageCallbacks = {
       reason: vi.fn().mockResolvedValue("Should not run"),
