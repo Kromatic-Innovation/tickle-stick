@@ -327,6 +327,38 @@ tickleStick:
     expect(prompt).toContain('"classification": "routine"');
   });
 
+  it("throws when a $file: reference escapes the base directory via .. (P4-#9)", () => {
+    const yaml = `
+tickleStick:
+  pipelines:
+    test:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "$file:../../../../etc/passwd"
+`;
+    expect(() => loadConfigFromString(yaml, fixturesDir)).toThrow(
+      /escapes the config directory/,
+    );
+  });
+
+  it("throws when a $file: reference is an absolute path outside base (P4-#9)", () => {
+    const yaml = `
+tickleStick:
+  pipelines:
+    test:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "$file:/etc/passwd"
+`;
+    expect(() => loadConfigFromString(yaml, fixturesDir)).toThrow(
+      /escapes the config directory/,
+    );
+  });
+
   it("throws on missing file reference", () => {
     const yaml = `
 tickleStick:

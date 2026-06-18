@@ -34,7 +34,19 @@ function interpolateEnvVars(content: string): string {
  */
 function resolveFileRefs(obj: unknown, basePath: string): unknown {
   if (typeof obj === "string" && obj.startsWith(FILE_REF_PREFIX)) {
-    const filePath = path.resolve(basePath, obj.slice(FILE_REF_PREFIX.length));
+    const baseResolved = path.resolve(basePath);
+    const filePath = path.resolve(baseResolved, obj.slice(FILE_REF_PREFIX.length));
+    // Contain the reference to the config directory subtree. Without this an
+    // `$file:../../../../etc/passwd` (or an absolute path) would inline any
+    // file the process can read into the config — and from there into
+    // prompts and stage commands. Path traversal is a tracked threat class
+    // (docs/security-posture.md §2).
+    const rel = path.relative(baseResolved, filePath);
+    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+      throw new Error(
+        `File reference escapes the config directory: ${obj} (resolved outside ${baseResolved})`,
+      );
+    }
     if (!fs.existsSync(filePath)) {
       throw new Error(`File reference not found: ${filePath} (from ${obj})`);
     }
