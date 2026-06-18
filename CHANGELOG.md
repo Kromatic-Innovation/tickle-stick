@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pull-requests: write`), consistent with `release.yml`'s existing pin
   policy. Also made coverage runnable from a clean install and enforced in
   CI. (#71)
+- **Dev-toolchain major bumps** ride along with this release (dev-only, not in
+  the published tarball): `eslint` 9→10, `typescript` 5.7→6, `vitest` 3→4,
+  `@types/node` 22→25. Noted here for a clean bisect story.
 
 ## [0.4.2] — 2026-04-29
 
