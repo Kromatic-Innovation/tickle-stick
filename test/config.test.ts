@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { loadConfigFromString } from "../src/config/loader.js";
 import { tickleStickConfigSchema } from "../src/config/schema.js";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
@@ -281,8 +281,11 @@ tickleStick:
     );
   });
 
-  it("replaces missing env vars with empty string", () => {
+  it("replaces missing env vars with empty string and warns (P2-#5)", () => {
     delete process.env.NONEXISTENT_VAR;
+    const warn = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
 
     const yaml = `
 tickleStick:
@@ -294,7 +297,13 @@ tickleStick:
           command: "\${NONEXISTENT_VAR}"
 `;
     const config = loadConfigFromString(yaml);
+    // Behavior preserved (non-breaking): still substitutes empty string…
     expect(config.tickleStick.pipelines["test"].stages[0].command).toBe("");
+    // …but the silent misconfiguration is now surfaced on stderr.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("undefined env var(s): NONEXISTENT_VAR"),
+    );
+    warn.mockRestore();
   });
 });
 
