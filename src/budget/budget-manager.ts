@@ -20,6 +20,47 @@ interface ParsedAlert {
   value: number;
 }
 
+/** Offset of `timeZone` from UTC at `instant`, in milliseconds (e.g. -4h for EDT). */
+function zoneOffsetMs(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const f: Record<string, number> = {};
+  for (const p of parts) {
+    if (p.type !== "literal") f[p.type] = Number(p.value);
+  }
+  const asUtc = Date.UTC(f.year, f.month - 1, f.day, f.hour, f.minute, f.second);
+  return asUtc - instant.getTime();
+}
+
+/**
+ * The UTC instant (ISO 8601) corresponding to 00:00:00 *local* time on
+ * `localDate` (a `YYYY-MM-DD` string) in `timeZone`. Resolving the zone
+ * offset at that date keeps this DST-correct (except within the ~1h of a
+ * transition, which budget windows tolerate).
+ *
+ * The day/week boundaries used to be hard-coded to `…T00:00:00.000Z`
+ * (midnight *UTC*), so a non-UTC `timezone` produced windows skewed by the
+ * zone offset — e.g. America/New_York counted spend from 20:00 the prior
+ * local day. For `timeZone: "UTC"` this returns the identical
+ * `…T00:00:00.000Z` value as before.
+ */
+export function startOfLocalDateUtc(
+  localDate: string,
+  timeZone: string,
+): string {
+  const utcMidnight = new Date(`${localDate}T00:00:00Z`);
+  const offsetMs = zoneOffsetMs(utcMidnight, timeZone);
+  return new Date(utcMidnight.getTime() - offsetMs).toISOString();
+}
+
 export class BudgetManager {
   private readonly config: BudgetConfig;
   private readonly storage: StorageAdapter | null;
@@ -200,8 +241,7 @@ export class BudgetManager {
   }
 
   private getDayStart(): string {
-    const today = this.getToday();
-    return `${today}T00:00:00.000Z`;
+    return startOfLocalDateUtc(this.getToday(), this.timezone);
   }
 
   private getWeekStart(): string {
@@ -229,7 +269,7 @@ export class BudgetManager {
     const mondayStr = new Intl.DateTimeFormat("en-CA", {
       timeZone: this.timezone,
     }).format(monday);
-    return `${mondayStr}T00:00:00.000Z`;
+    return startOfLocalDateUtc(mondayStr, this.timezone);
   }
 
   /** Visible for testing. */
