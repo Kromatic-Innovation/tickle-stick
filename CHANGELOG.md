@@ -5,6 +5,62 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-06-18
+
+> **Breaking under pre-1.0 SemVer.** This release changes `$file:` config
+> resolution (now contained to the config directory) and how script-stage
+> failures surface. Per [SemVer §4](https://semver.org/#spec-item-4) a `0.x`
+> consumer should review **Changed** before upgrading.
+
+### Added
+
+- **`StageResult.errored`** — `true` when a script stage's command fails
+  (timeout, non-zero exit, spawn error, or non-`WorkItem[]` output). Lets
+  consumers distinguish a failed gather from a legitimately empty one; both
+  still yield zero items. (#69)
+
+### Changed
+
+- **Script-stage failures are no longer silently swallowed.** `runScript` /
+  `runPipedScript` failures now fire the existing
+  `PipelineOptions.onError(stage, err, "stage")` hook, set
+  `StageResult.errored`, and emit telemetry `action: "error"` instead of
+  `"empty"`. Resolves the "silent stage-error swallowing" 1.0 yellow-flag
+  from [#34](https://github.com/Kromatic-Innovation/tickle-stick/issues/34).
+  (#69)
+- **`$file:` config references are contained to the config directory.** A
+  reference resolving outside the config-directory subtree (via `..` or an
+  absolute path) now throws instead of inlining an arbitrary file into the
+  config. Same-directory and nested references are unaffected. (#73)
+- **Undefined environment variables in config now warn.** `${UNDEFINED_VAR}`
+  still substitutes an empty string (non-breaking) but logs a one-line
+  stderr warning naming the undefined vars. (#69)
+
+### Fixed
+
+- **`runPipedScript` could crash the host process** with an unhandled `EPIPE`
+  when a piped script exited before draining stdin. Added the missing stdin
+  error guard (mirroring `post-hook.ts`). (#65)
+- **Prompt templates with repeated `{{items}}` / `{{all_items}}`
+  placeholders** substituted only the first occurrence, shipping the literal
+  token to the expensive model for the rest. All occurrences are now
+  substituted. (#66)
+- **Budget day/week boundaries ignored the configured `timezone`** — they
+  were anchored to midnight UTC, skewing windows by the zone offset for any
+  non-UTC deployment. Boundaries are now computed at local midnight in the
+  configured zone (DST-correct). UTC behavior is byte-identical. (#67)
+- **A single malformed element in script output discarded the whole batch.**
+  `parseScriptOutput` now skips `null` / primitive / array elements
+  individually and keeps the valid items. (#73)
+
+### Security
+
+- **SHA-pinned the GitHub Actions** in `ci.yaml` and
+  `dependabot-auto-merge.yml` (the latter holds `contents: write` +
+  `pull-requests: write`), consistent with `release.yml`'s existing pin
+  policy. Also made coverage runnable from a clean install and enforced in
+  CI. (#71)
+
 ## [0.4.2] — 2026-04-29
 
 > **Breaking under pre-1.0 SemVer.** Despite the patch-level version digit,
@@ -163,6 +219,7 @@ stabilization in
   489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
   prune, asymmetric provider API.
 
+[0.5.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.5.0
 [0.4.2]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.2
 [0.4.1]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.0

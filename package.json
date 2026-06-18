@@ -1,6 +1,6 @@
 {
   "name": "tickle-stick",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Opinionated cost-hierarchy pipeline for agentic workflows. Triage cheaply before committing expensive intelligence.",
   "type": "module",
   "main": "dist/index.js",
