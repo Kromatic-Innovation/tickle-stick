@@ -38,7 +38,10 @@ export function interpolatePrompt(
   const allItems = applyInputFilter("all", context);
   const allItemsJson = JSON.stringify(allItems.map(projectItem), null, 2);
 
+  // replaceAll (not replace) so templates may reference a placeholder more
+  // than once; function replacements avoid `$`-pattern interpretation of the
+  // JSON payloads (which can legitimately contain `$`).
   return template
-    .replace("{{items}}", itemsJson)
-    .replace("{{all_items}}", allItemsJson);
+    .replaceAll("{{all_items}}", () => allItemsJson)
+    .replaceAll("{{items}}", () => itemsJson);
 }

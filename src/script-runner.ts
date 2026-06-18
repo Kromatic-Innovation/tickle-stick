@@ -72,6 +72,12 @@ export function runPipedScript(
       resolve([]);
     });
 
+    // Silently drop stdin errors (e.g. EPIPE). A child that ignores stdin
+    // and exits before we finish writing closes the pipe's read end; the
+    // resulting 'error' event on child.stdin would otherwise be unhandled
+    // and crash the host process. The close/error handlers above surface
+    // the real exit reason. (Mirrors the guard in post-hook.ts.)
+    child.stdin.on("error", () => {});
     child.stdin.write(stdinData);
     child.stdin.end();
   });

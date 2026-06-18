@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { BudgetManager } from "../src/budget/budget-manager.js";
+import {
+  BudgetManager,
+  startOfLocalDateUtc,
+} from "../src/budget/budget-manager.js";
 import type { BudgetConfig } from "../src/config/schema.js";
 import type { TelemetryEvent } from "../src/telemetry/logger.js";
 import type { StorageAdapter, BudgetAlert } from "../src/types.js";
@@ -309,6 +312,25 @@ describe("BudgetManager", () => {
     expect(status.dailySpend).toBe(0);
     expect(status.weeklySpend).toBe(0);
     expect(status.exceeded).toBe(false);
+  });
+
+  it("computes local-midnight UTC boundaries for the configured timezone (P1-#3)", () => {
+    // UTC: unchanged from the old `${date}T00:00:00.000Z` behavior.
+    expect(startOfLocalDateUtc("2026-06-18", "UTC")).toBe(
+      "2026-06-18T00:00:00.000Z",
+    );
+    // EDT (UTC-4, summer): local midnight is 04:00 UTC.
+    expect(startOfLocalDateUtc("2026-07-01", "America/New_York")).toBe(
+      "2026-07-01T04:00:00.000Z",
+    );
+    // EST (UTC-5, winter): local midnight is 05:00 UTC.
+    expect(startOfLocalDateUtc("2026-01-01", "America/New_York")).toBe(
+      "2026-01-01T05:00:00.000Z",
+    );
+    // CET (UTC+1, winter): local midnight is 23:00 the prior UTC day.
+    expect(startOfLocalDateUtc("2026-01-01", "Europe/Berlin")).toBe(
+      "2025-12-31T23:00:00.000Z",
+    );
   });
 
   it("includes readable message in alert", async () => {

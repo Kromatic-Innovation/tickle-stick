@@ -246,6 +246,48 @@ describe("Multi-stage pipeline", () => {
     expect(prompt).toContain("item-3");
   });
 
+  it("substitutes repeated {{items}} placeholders (P1-#2)", async () => {
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "needs-reasoning",
+      confidence: 0.9,
+    });
+    const stageCallbacks = { reason: vi.fn().mockResolvedValue("ok") };
+
+    const pipeline = new Pipeline({
+      name: "repeat-placeholder",
+      config: {
+        stages: [
+          scriptStageForItems(sampleItems),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+            confidenceThreshold: 0.7,
+          },
+          {
+            name: "reason",
+            type: "model",
+            provider: "expensive",
+            prompt: "First: {{items}} --- Again: {{items}}",
+            input: "classified:needs-reasoning",
+          },
+        ],
+      },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      stageCallbacks,
+    });
+
+    await pipeline.run();
+
+    const [, prompt] = stageCallbacks.reason.mock.calls[0];
+    // Both occurrences are substituted — no literal placeholder survives,
+    // and item-1 appears in each of the two rendered blocks.
+    expect(prompt).not.toContain("{{items}}");
+    expect(prompt.split("item-1").length - 1).toBe(2);
+  });
+
   it("runs post-hook after stage completion", async () => {
     // Use a post-hook that writes to a file we can check
     // For testing, we use a no-op command that succeeds

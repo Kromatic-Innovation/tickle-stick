@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runScript } from "../src/script-runner.js";
+import { runScript, runPipedScript } from "../src/script-runner.js";
 
 describe("runScript", () => {
   it("parses valid JSON array of work items", async () => {
@@ -110,5 +110,47 @@ describe("runScript", () => {
       threadId: "t123",
       labels: ["inbox"],
     });
+  });
+});
+
+describe("runPipedScript", () => {
+  it("round-trips JSON piped via stdin", async () => {
+    const items = await runPipedScript(
+      "node",
+      [
+        "-e",
+        "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>process.stdout.write(d))",
+      ],
+      5000,
+      JSON.stringify([
+        { id: "x1", source: "s", type: "t", summary: "round trip" },
+      ]),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0].id).toBe("x1");
+  });
+
+  it("does not crash when the child exits before draining stdin (EPIPE guard)", async () => {
+    // Child ignores stdin and exits immediately, closing the pipe's read
+    // end. Writing a large payload to it must not raise an unhandled EPIPE
+    // on the host process. Regression for audit finding P1-#1.
+    const big = JSON.stringify(
+      Array.from({ length: 5000 }, (_, i) => ({
+        id: `i${i}`,
+        summary: "x".repeat(200),
+      })),
+    );
+    const items = await runPipedScript(
+      "node",
+      ["-e", "process.exit(0)"],
+      5000,
+      big,
+    );
+    expect(items).toEqual([]);
+  });
+
+  it("returns empty array when the piped command fails", async () => {
+    const items = await runPipedScript("false", [], 5000, "[]");
+    expect(items).toEqual([]);
   });
 });
