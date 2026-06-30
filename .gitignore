@@ -34,6 +34,9 @@ credentials.json
 .claude/settings.local.json
 .zenodotus/
 
+# Internal agent-policy overlay — workspace-internal, never published
+AGENTS.local.md
+
 # Derived from ~/Code/docs/project-registry.yaml by
 # scripts/derive_repo_configs.py — local artifacts, never committed.
 .agents/
