@@ -1,5 +1,9 @@
 # Tickle-Stick — Agent Policy
 
+> **Internal contributors:** also read `AGENTS.local.md` (gitignored, not part
+> of the OSS package) for internal policy and tooling references that don't
+> belong in the public repo.
+
 ## GitHub
 
 - **Owner:** Kromatic-Innovation
@@ -17,12 +21,11 @@ It intercepts inbound messages and triages them through a 4-tier pipeline:
 
 ## Branch policy
 
-Inherits from `$WORKSPACE/policies/branch-and-promotion.md`:
+- Feature work on `codex/feature/<topic>` branches off `develop`.
+- Merge to `develop` with a merge commit.
 
-- Feature work on `codex/feature/<topic>` branches
-- Merge to `develop` with merge commit
-
-**Repo metadata** (promotion model, staging status, Sentry projects, traffic tier, autonomous-loop opt-in): see `~/Code/docs/project-registry.yaml` entry for `Kromatic-Innovation/tickle-stick`. Do not duplicate that metadata here.
+(Internal contributors: see `AGENTS.local.md` for the internal promotion model
+and repo-metadata references.)
 
 ## Spec-driven development
 
@@ -52,10 +55,8 @@ here can silently break a consumer that catches/swallows errors.
 **Before merging ANY change to the published surface or pipeline contract
 (not just releases), you MUST:**
 
-1. **Enumerate local consumers.** Known consumer: **Voltaire** in
-   `Kromatic-Innovation/code-workspace-config` (`voltaire/` triage —
-   `src/pipeline.ts` `triageProvider.classify`, runner). Grep the workspace for
-   other importers: `grep -rl "tickle-stick" ~/Code --include=*.ts --include=*.json -l`.
+1. **Enumerate downstream consumers** — every repo that imports or composes
+   against this package.
 2. **Check each consumer against the change.** Pay special attention to the
    `text` passed into `provider.classify` (consumers may `JSON.parse` it),
    work-item/`summary` shape, and tier return contracts.
@@ -65,33 +66,26 @@ here can silently break a consumer that catches/swallows errors.
 4. Bump the version per semver — a contract change is a MAJOR (or at least
    MINOR-with-migration-note), never a silent patch.
 
-_Why this exists: a tickle-stick 0.5.0 change that prepended `[type: …]` context
-to the classifier input broke Voltaire's `JSON.parse(text)` silently (the throw
-was swallowed downstream), disabling its LLM tier for ~a month. cwc#816._
+_Why this exists: a past change that prepended extra context to the classifier
+input broke a downstream consumer's `JSON.parse(text)` silently (the throw was
+swallowed), disabling its cheap-model tier for ~a month before anyone noticed._
 
 ## Release process
 
-Tickle-stick is slated for OSS release in 2026. The published surface
-includes the wheel/package itself **and** its installation hooks (cron,
-services, launchd) — release review must walk the install path, not just
-the code.
+Tickle-stick is slated for OSS release. The published surface includes the
+package itself **and** its installation hooks (cron, services, launchd) —
+release review must walk the install path, not just the code.
 
 Before any release tag (`vX.Y.Z`):
 
 1. Confirm `develop` is at the intended release-candidate tip.
-2. Run the workspace `/zenodotus` skill against this repo:
-   ```
-   /zenodotus --repo . --ref develop --version <X.Y.Z> --prior-tag <vA.B.C>
-   ```
-3. Zenodotus spawns a 4-persona no-context reviewer panel
-   (drive-by installer, production evaluator, maintainer's maintainer,
-   drive-by contributor) and writes a verdict to
-   `.zenodotus/<version>/verdict.md`.
-   - **Pass** → use the drafted `.zenodotus/<version>/tag-message.md` as
-     the tag body; create `git tag vX.Y.Z` and push.
-   - **Conditional** / **Fail** → fix the must-fix items on `develop`,
-     re-run `/zenodotus`.
-4. Tagging stays human-triggered. Zenodotus does not run `git tag`.
+2. Run the project's release-review panel against the published surface
+   (code + install path) — a no-context reviewer panel that produces a
+   pass / conditional / fail verdict.
+   - **Pass** → use the drafted tag body; create `git tag vX.Y.Z` and push.
+   - **Conditional** / **Fail** → fix the must-fix items on `develop`, re-run
+     the review.
+3. Tagging stays human-triggered — the review panel never runs `git tag`.
 
-The `.zenodotus/` directory is gitignored — verdict artifacts are local
-record, not durable repo state.
+(Internal contributors: the specific release-review tooling and invocation are
+documented in `AGENTS.local.md`.)
