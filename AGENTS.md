@@ -42,6 +42,33 @@ Read `spec.md` for scope, `plan.md` for architecture, `contracts/` for interface
 - YAML config with env var interpolation
 - Structured JSON logging for telemetry
 
+## Downstream consumers — breaking-change discipline (REQUIRED)
+
+Tickle-stick is a SUBSTRATE: other repos compose against its published surface
+(work-item shape, the `provider.classify(text, systemPrompt)` call + the exact
+`text` it receives, tier behavior/return shapes, config schema, hooks). A change
+here can silently break a consumer that catches/swallows errors.
+
+**Before merging ANY change to the published surface or pipeline contract
+(not just releases), you MUST:**
+
+1. **Enumerate local consumers.** Known consumer: **Voltaire** in
+   `Kromatic-Innovation/code-workspace-config` (`voltaire/` triage —
+   `src/pipeline.ts` `triageProvider.classify`, runner). Grep the workspace for
+   other importers: `grep -rl "tickle-stick" ~/Code --include=*.ts --include=*.json -l`.
+2. **Check each consumer against the change.** Pay special attention to the
+   `text` passed into `provider.classify` (consumers may `JSON.parse` it),
+   work-item/`summary` shape, and tier return contracts.
+3. **File a GitHub issue in the CONSUMER's repo** for anything that might break,
+   linking the tickle-stick change, BEFORE the consumer can silently rot. A
+   silent break is worse than a loud one.
+4. Bump the version per semver — a contract change is a MAJOR (or at least
+   MINOR-with-migration-note), never a silent patch.
+
+_Why this exists: a tickle-stick 0.5.0 change that prepended `[type: …]` context
+to the classifier input broke Voltaire's `JSON.parse(text)` silently (the throw
+was swallowed downstream), disabling its LLM tier for ~a month. cwc#816._
+
 ## Release process
 
 Tickle-stick is slated for OSS release in 2026. The published surface
