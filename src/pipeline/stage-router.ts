@@ -226,8 +226,13 @@ export class StageRouter {
           tokensIn,
           tokensOut,
         });
-      } catch {
-        // Classification failed → escalate to needs-reasoning
+      } catch (err) {
+        // Classification failed → escalate to needs-reasoning.
+        // Surface the otherwise-swallowed error via onError so a dead LLM tier
+        // is diagnosable (#84); the fallback below is unchanged. We deliberately
+        // do NOT set result.errored here — this is pure observability and must
+        // not alter output.errors surfacing that downstream consumers key off.
+        this.onError?.(stage.name, err, "stage");
         classified.push({
           ...item,
           classification: "needs-reasoning",

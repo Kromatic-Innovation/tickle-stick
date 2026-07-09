@@ -405,6 +405,67 @@ describe("Pipeline", () => {
     expect(onError).toHaveBeenCalledWith("bad", expect.any(Error), "stage");
   });
 
+  it("surfaces a swallowed classify error via onError and still falls back to needs-reasoning (#84)", async () => {
+    const onError = vi.fn();
+    const throwingProvider: TriageProvider = {
+      name: "throwing",
+      classify: vi.fn().mockRejectedValue(new Error("classify boom")),
+    };
+    const pipeline = new Pipeline({
+      name: "classify-throws",
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "echo",
+          args: [
+            JSON.stringify(
+              sampleItems.map((i) => ({
+                ...i,
+                timestamp: i.timestamp.toISOString(),
+              })),
+            ),
+          ],
+          timeout: 5000,
+        },
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ]),
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: throwingProvider,
+      onError,
+    });
+
+    const result = await pipeline.run();
+
+    // (a) fallback unchanged: both items still escalate to needs-reasoning
+    const classifyStage = result.stageResults.find(
+      (s) => s.name === "classify",
+    );
+    const items = (classifyStage?.items ?? []) as Array<{
+      classification?: string;
+    }>;
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.classification === "needs-reasoning")).toBe(
+      true,
+    );
+
+    // (b) the previously-swallowed throw now reaches onError with a message
+    expect(onError).toHaveBeenCalledWith(
+      "classify",
+      expect.any(Error),
+      "stage",
+    );
+    const [, err] = onError.mock.calls[0];
+    expect((err as Error).message).toBeTruthy();
+  });
+
   it("emits TelemetryEvents carrying provider/model/tokensIn/tokensOut from the cheap-model stage", async () => {
     const provider: TriageProvider = {
       name: "mock-anthropic",
