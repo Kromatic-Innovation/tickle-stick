@@ -34,10 +34,13 @@ jobs:
 
       # Trusted publishing requires npm >= 11.5.1 — Node 20 ships npm 10.x,
       # which signs provenance attestations but doesn't perform the
-      # OIDC↔registry token exchange.
+      # OIDC↔registry token exchange. Pin to the npm 11 line: `npm@latest`
+      # is now npm 12, which dropped Node 20 (requires node >=22) and fails
+      # this step with EBADENGINE. npm 11.x still supports Node 20
+      # (^20.17.0) and satisfies the >= 11.5.1 trusted-publishing floor.
       - name: Upgrade npm to support trusted publishing
         run: |
-          npm install -g npm@latest
+          npm install -g npm@11
           npm --version
 
       - name: Install
