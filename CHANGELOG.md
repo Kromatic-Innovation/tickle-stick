@@ -5,6 +5,23 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-07-17
+
+### Changed
+
+- **Cheap-model `classify()` failures now surface via `onError`.** A throw from
+  the triage stage's `classify()` was previously swallowed by a bare `catch {}`
+  in `stage-router.ts`; it now fires the existing
+  `PipelineOptions.onError(stage, err, "stage")` hook. `StageResult.errored` and
+  `output.errors` semantics are unchanged. This extends the "no silently
+  swallowed stage errors" work from 0.5.0 to the triage classifier. (#84)
+- **Dev-toolchain bumps** (no runtime or published-API impact): `@types/node` →
+  ^26, `eslint` → ^10, `typescript` → ^6, `vitest` → ^4, plus grouped
+  dependabot patch/minor updates. (#85, #86, #90, #91)
+- **`AGENTS.md` split** into an OSS-safe public file plus a gitignored internal
+  overlay (`AGENTS.local.md`); the published package and public repo carry no
+  Kromatic-internal guidance. (#83)
+
 ## [0.5.0] — 2026-06-18
 
 > **Breaking under pre-1.0 SemVer.** This release changes `$file:` config
@@ -222,6 +239,7 @@ stabilization in
   489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
   prune, asymmetric provider API.
 
+[0.6.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.5.0
 [0.4.2]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.2
 [0.4.1]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.1
