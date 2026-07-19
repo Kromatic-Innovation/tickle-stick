@@ -39,3 +39,28 @@ jobs:
       - name: Coverage (thresholds enforced)
         if: matrix.node-version == 22
         run: npm run coverage
+
+  ci-required:
+    name: CI Required
+    needs: [lint-test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate CI result
+        env:
+          LINT_TEST_RESULT: ${{ needs.lint-test.result }}
+        run: |
+          echo "lint-test=$LINT_TEST_RESULT"
+          # `success` → all matrix legs ran and passed.
+          # `skipped` → job did not need to run (e.g. duplicate/no-op path).
+          # anything else (failure/cancelled) → fail the gate.
+          case "$LINT_TEST_RESULT" in
+            success|skipped)
+              echo "CI Required: green (lint-test=$LINT_TEST_RESULT)"
+              exit 0
+              ;;
+            *)
+              echo "::error::CI job result '$LINT_TEST_RESULT' is not green — failing the aggregate gate."
+              exit 1
+              ;;
+          esac
