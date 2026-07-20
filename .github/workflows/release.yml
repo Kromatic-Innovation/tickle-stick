@@ -52,19 +52,13 @@ jobs:
       - name: Verify package contents
         run: npm pack --dry-run
 
-      # Trusted publishing fallback to NPM_TOKEN. The trusted publisher
-      # is configured on npmjs.com (Kromatic-Innovation/tickle-stick →
-      # release.yml) but the v0.4.0 release attempts kept failing with
-      # ENEEDAUTH / 404 — npm 11.13's OIDC trusted-publishing detection
-      # never fired despite `id-token: write`, `--provenance`, and a
-      # cleaned `.npmrc`. See tickle-stick#38 for the full failure
-      # analysis.
-      #
-      # Until that's resolved, this step uses a classic automation token
-      # in the NPM_TOKEN repo secret. Provenance attestations still get
-      # signed via OIDC (separate code path that already works) so the
-      # supply-chain posture is mostly preserved.
+      # npm Trusted Publishing (OIDC) via the publisher configured on
+      # npmjs.com (Kromatic-Innovation/tickle-stick → release.yml). The
+      # v0.4.0 release attempts (tickle-stick#38) hit ENEEDAUTH/404 because
+      # OIDC detection needs npm >=11.5.1 (see the upgrade step above) —
+      # that was the actual bug, not a broken trusted publisher. Confirmed
+      # working since v0.4.1: CI logs show "Signed provenance statement
+      # ... from GitHub Actions" with no NPM_TOKEN secret present anywhere,
+      # org or repo. No stored credential of any kind is involved.
       - name: Publish to npm
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
