@@ -13,8 +13,9 @@
 You're running your agents wrong.
 
 Every scheduled task — email check, calendar sync, dependabot alerts — triggers
-a full agent loop at **~$0.15 per invocation**. That's $216/month just for
-email checks. Most of those tasks don't need intelligence.
+a full agent loop at **~$0.15 per invocation**. A mailbox polled every ~15
+minutes is ~100 runs/day — about $15/day, or **$450/month**, just for email
+checks. Most of those tasks don't need intelligence.
 
 ## The Solution: Stage-Based Pipelines
 
@@ -145,8 +146,9 @@ delivered: Hello world
 items=1 cost=$0.0010
 ```
 
-> Telemetry is on by default, so the real run also prints one structured JSON
-> line per stage to stdout around the two lines above. Pass
+> Telemetry is on by default, so a plain `node quickstart.mjs` also prints
+> structured JSON to stdout — one line per stage plus one line per classified
+> item — interleaved with the two lines above. Pass
 > `telemetry: { enabled: false }` to the `Pipeline` (or a custom `logSink`) to
 > silence or redirect it.
 

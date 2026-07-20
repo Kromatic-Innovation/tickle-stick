@@ -34,6 +34,9 @@ credentials.json
 .claude/settings.local.json
 .zenodotus/
 
+# Spec-kit scaffolding — internal spec-driven-dev artifacts, not needed by consumers
+.specify/
+
 # Internal agent-policy overlay — workspace-internal, never published
 AGENTS.local.md
 
