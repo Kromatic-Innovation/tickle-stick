@@ -306,6 +306,53 @@ The stage output is piped to stdin as JSON. Use post-hooks for side effects:
 
 Post-hook errors are logged but don't fail the pipeline.
 
+## Error handling & observability
+
+Stage and post-hook failures never abort the pipeline — a throw is caught, the
+run continues, and the error is surfaced to the optional `onError` callback so
+hosts can log or emit telemetry instead of losing it silently.
+
+```typescript
+const pipeline = new Pipeline({
+  name: "triage",
+  config,
+  triageProvider,
+  onError: (stage, err, phase) => {
+    // phase: "stage" (a stage body threw) | "post-hook" (a postHook threw)
+    console.error(`stage "${stage}" failed during ${phase}:`, err);
+  },
+});
+```
+
+`onError(stage, err, phase)` fires on:
+
+- **Script-stage failures** — a script stage times out, exits non-zero,
+  spawn-errors, or returns non-`WorkItem[]` output (`phase: "stage"`).
+- **Post-hook failures** — a stage's `postHook` throws (`phase: "post-hook"`).
+- **Cheap-model triage failures** _(since 0.6.0, [#84](https://github.com/Kromatic-Innovation/tickle-stick/issues/84))_ —
+  a throw from the triage stage's `classify()` was previously swallowed by a
+  bare `catch`; it now fires `onError` with `phase: "stage"` so a dead
+  cheap-model tier is diagnosable. The item still falls back to
+  `needs-reasoning` and the pipeline is otherwise unaffected.
+
+### Inspecting failures after a run
+
+For **script stages**, `StageResult.errored` is set to `true`, letting you
+tell a failed gather apart from a legitimately empty one (both yield zero
+items):
+
+```typescript
+const result = await pipeline.run();
+for (const stage of result.stageResults) {
+  if (stage.errored) console.warn(`stage "${stage.name}" failed`);
+}
+```
+
+The cheap-model triage case above is **pure observability**: it fires
+`onError` but deliberately does _not_ set `errored`, so consumers that key off
+`errored` see unchanged behaviour. Observe those failures through the
+`onError` callback rather than `stageResults`.
+
 ## Input Filters
 
 Control which items a stage sees with the `input` field:
