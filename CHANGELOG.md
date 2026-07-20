@@ -5,6 +5,36 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] — 2026-07-20
+
+Documentation, tooling, and OSS-readiness release. No runtime or published-API
+changes — the `onError` triage-classifier behavior shipped in 0.6.0 (#84).
+
+### Changed
+
+- **`onError` hook documentation** — the README now documents the triage
+  classifier's `onError(stage, err, "stage")` behavior added in 0.6.0. (#97)
+- **Cost-claim reconciliation** — the README intro said "$216/month" while the
+  Cost Comparison table anchors on "$15.00/day" ($450/mo); the intro is
+  corrected to $15/day / $450/month with a one-line methodology note so the two
+  figures agree.
+- **Telemetry docs reconciliation** — clarified that telemetry is on by default,
+  so a plain `node quickstart.mjs` emits structured JSON (one line per stage
+  plus one per classified item), not only the elided clean block.
+
+### Added
+
+- **Issue templates** — bug-report and feature-request templates for the public
+  repo. (#87, #88)
+- **OSS-readiness CI** — continuous-integration checks that guard the
+  open-source release surface. (#98, #99)
+
+### Removed
+
+- **Untracked internal spec-kit scaffolding** — `.specify/` is now gitignored;
+  the spec-driven-dev artifacts are not needed by consumers of the published
+  package.
+
 ## [0.6.0] — 2026-07-17
 
 ### Changed
