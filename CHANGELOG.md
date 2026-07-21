@@ -5,6 +5,20 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] — 2026-07-21
+
+Maintenance release. No consumer-visible or breaking changes.
+
+### Fixed
+
+- **`brace-expansion` security fix** — bumped 5.0.6 → 5.0.7 (GHSA-3jxr-9vmj-r5cp). (#108)
+- **Stale `NPM_TOKEN` comment in `release.yml`** — corrected to describe the actual (working) OIDC trusted-publishing setup. (#107)
+
+### Changed
+
+- **`actions/setup-node`** bumped 6.4.0 → 7.0.0. (#105)
+- Dev-dependency group bump (2 packages). (#106)
+
 ## [0.6.1] — 2026-07-20
 
 Documentation, tooling, and OSS-readiness release. No runtime or published-API
