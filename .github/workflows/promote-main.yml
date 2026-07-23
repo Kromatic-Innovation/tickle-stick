@@ -1,0 +1,187 @@
+name: Promote Main
+
+# ⚠️  CANONICAL TEMPLATE — DO NOT HAND-EDIT PER REPO.
+#
+# This is the single source of truth for `promote-main.yml` across every
+# Internal Platform repo (registry `family: platform` + `promotionModel:
+# develop-main`). It is versioned in code-workspace-config at
+# `templates/promote-main.yml` and synced into each platform repo by
+# `scripts/sync_promote_workflows.py` (mirror of `derive_repo_configs.py`).
+# A CI drift-check (`.github/workflows/promote-workflow-drift.yml`) fails the
+# build if a repo's committed copy diverges from this canonical content.
+#
+# To change the promotion contract, edit THIS template and re-run the sync
+# script — never hand-edit a repo's `.github/workflows/promote-main.yml`.
+# cwc#1468. End home: cron-fleet (rides cwc#1107).
+#
+# Contract — the `{source_branch, target_branch, reason}` winner (rejecting the
+# old `{sha, reason}` + hardcoded-`ci.yml` shape):
+#
+# Platform repos are `develop-main`: `main` is the deliberate deploy ref (the
+# launchd registry deploy checkout is main-pinned; deploy-guard.sh
+# fast-forwards+reloads it from origin/main before every dispatch, so advancing
+# `main` IS the deploy). `main` is push-restricted (branch-protection
+# allowlist), so a local `octokit.git.updateRef` under a daemon App returns
+# HTTP 422. This workflow does the fast-forward IN CI under the
+# kromatic-workflow-bot App, which holds the protected-branch bypass.
+# `hestia promote --repo <name>` dispatches this workflow.
+#
+# The chain is develop -> main and the `to_main` gate is `ci_green`. This
+# workflow refuses to promote unless the `CI Required` aggregate check is green
+# for the exact develop SHA being promoted (resolved via the generic check-runs
+# API, not a hardcoded `ci.yml` context), then fast-forwards `main` via the refs
+# API (force=false, never a force-push). Triggered by workflow_dispatch.
+#
+# Precondition: `main` is an ancestor of `develop` (fast-forward possible).
+# If it isn't, open a `chore: sync develop with main` PR first.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: Source branch for promotion (must be develop)
+        required: true
+        default: develop
+      target_branch:
+        description: Target branch for promotion (must be main)
+        required: true
+        default: main
+      reason:
+        description: Promotion reason for audit trail
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+  statuses: read
+  checks: read
+
+jobs:
+  promote:
+    name: Fast-forward Promote develop → main
+    runs-on: ubuntu-latest
+    outputs:
+      promoted_sha: ${{ steps.set_promoted_sha.outputs.promoted_sha }}
+    env:
+      SOURCE_BRANCH: ${{ github.event.inputs.source_branch }}
+      TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+      PROMOTION_REASON: ${{ github.event.inputs.reason }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Load workflow-bot App credentials from 1Password
+        uses: 1password/load-secrets-action@v4
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
+          KROMATIC_WORKFLOW_BOT_APP_ID: op://Infrastructure/kromatic-workflow-bot/app-id
+          KROMATIC_WORKFLOW_BOT_PRIVATE_KEY: op://Infrastructure/kromatic-workflow-bot/private-key
+
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ env.KROMATIC_WORKFLOW_BOT_APP_ID }}
+          private-key: ${{ env.KROMATIC_WORKFLOW_BOT_PRIVATE_KEY }}
+
+      - name: Validate promotion inputs and fast-forward precondition
+        run: |
+          set -euo pipefail
+
+          if [ "$SOURCE_BRANCH" != "develop" ]; then
+            echo "::error::source_branch must be 'develop'. Got '$SOURCE_BRANCH'."
+            exit 1
+          fi
+
+          if [ "$TARGET_BRANCH" != "main" ]; then
+            echo "::error::target_branch must be 'main'. Got '$TARGET_BRANCH'."
+            exit 1
+          fi
+
+          git fetch --no-tags --prune origin "$SOURCE_BRANCH" "$TARGET_BRANCH"
+
+          SOURCE_SHA="$(git rev-parse "origin/${SOURCE_BRANCH}")"
+          TARGET_SHA="$(git rev-parse "origin/${TARGET_BRANCH}")"
+
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_ENV"
+          echo "target_sha=$TARGET_SHA" >> "$GITHUB_ENV"
+
+          if [ "$SOURCE_SHA" = "$TARGET_SHA" ]; then
+            echo "::error::${SOURCE_BRANCH} and ${TARGET_BRANCH} are already at the same SHA. Nothing to promote."
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "$TARGET_SHA" "$SOURCE_SHA"; then
+            echo "::error::Fast-forward precondition failed: ${TARGET_BRANCH} is not an ancestor of ${SOURCE_BRANCH}. Open a 'chore: sync ${SOURCE_BRANCH} with ${TARGET_BRANCH}' PR first."
+            exit 1
+          fi
+
+      - name: Enforce to_main gate — CI Required green on source SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # `to_main` gate is `ci_green`; the enforcing context is the `CI
+          # Required` aggregate check. Fail closed if it is not a completed
+          # success on the exact SHA being promoted.
+          required=("CI Required")
+
+          for ctx in "${required[@]}"; do
+            conclusion=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${source_sha}/check-runs" \
+              --jq ".check_runs[] | select(.name == \"${ctx}\") | .conclusion" | head -n 1)
+            if [ "$conclusion" != "success" ]; then
+              echo "::error::Required check '${ctx}' is not passing on ${source_sha} (conclusion='${conclusion:-<missing>}'). Wait for develop CI or investigate failures."
+              exit 1
+            fi
+            echo "ok: ${ctx} = success"
+          done
+
+      - name: Set promoted SHA output
+        id: set_promoted_sha
+        run: echo "promoted_sha=${source_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Push fast-forward promotion via refs API
+        env:
+          # App-minted token required because main's branch protection rejects
+          # direct ref writes by the default GITHUB_TOKEN with HTTP 422. The
+          # kromatic-workflow-bot App has the bypass for promotion refs.
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::App-minted promotion token is empty; GitHub App token minting likely failed."
+            exit 1
+          fi
+
+          update_payload=$(jq -nc --arg sha "$source_sha" '{sha:$sha,force:false}')
+          update_url="https://api.github.com/repos/${GITHUB_REPOSITORY}/git/refs/heads/${TARGET_BRANCH}"
+          http_status=$(curl -sS -o /tmp/promote_main_ref_update.json -w "%{http_code}" -L -X PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$update_url" \
+            -d "$update_payload")
+          if [ "$http_status" != "200" ]; then
+            echo "::error::Failed to fast-forward ${TARGET_BRANCH} to ${source_sha} via refs API (HTTP ${http_status})."
+            cat /tmp/promote_main_ref_update.json
+            exit 1
+          fi
+
+      - name: Write promotion audit summary
+        run: |
+          {
+            echo "## Main Promotion"
+            echo "- repository: \`${GITHUB_REPOSITORY}\`"
+            echo "- initiated_by: \`${GITHUB_ACTOR}\`"
+            echo "- source_branch: \`${SOURCE_BRANCH}\`"
+            echo "- target_branch: \`${TARGET_BRANCH}\`"
+            echo "- promoted_sha: \`${source_sha}\`"
+            echo "- reason: ${PROMOTION_REASON}"
+            echo "- run_url: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"
