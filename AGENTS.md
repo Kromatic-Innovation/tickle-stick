@@ -70,6 +70,16 @@ _Why this exists: a past change that prepended extra context to the classifier
 input broke a downstream consumer's `JSON.parse(text)` silently (the throw was
 swallowed), disabling its cheap-model tier for ~a month before anyone noticed._
 
+**Consumers and the release-before-deploy contract:** tickle-stick is published
+to npm as `tickle-stick`; its fleet consumers are **voltaire** — the
+machine-readable edge is `consumedBy` on the tickle-stick entry of cwc's
+`docs/project-registry.yaml`, so keep this note and that edge discoverable
+together. A change here is **not live for a consumer until it is (1) published
+to npm AND (2) that consumer's dependency pin is bumped** to admit the new
+version. Merging and promoting to `main` here can read green while a consumer
+keeps running the old pinned line — the fix is not deployed for them until the
+pin moves.
+
 ## Release process
 
 Tickle-stick is slated for OSS release. The published surface includes the
