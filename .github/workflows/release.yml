@@ -1,45 +1,64 @@
 name: Release
 
-# Publishing is delegated to code-workspace-config's reusable
-# npm-OIDC-publish workflow (cwc#1439) rather than inlining the publish steps
-# here. This repo's release.yml was the reference that shared workflow was
-# built from — the npm@11 trusted-publishing pin (trusted publishing needs
-# npm >= 11.5.1; npm@latest is now npm 12, which dropped Node 20) was first
-# discovered here on 2026-07-21 before being ported to panelist / ideate-core.
-# Centralising the steps means a future npm gotcha (the npm@11 pin, the
-# publishConfig strip, provenance gating) is fixed once in cwc and every
-# caller inherits it.
-#
-# The reusable workflow pins its own actions to full commit SHAs (immutable);
-# we pin the reusable workflow itself to `@main` per its documented caller
-# contract. permissions are NOT inherited into a called workflow, so the
-# caller job below must grant `id-token: write` or OIDC token minting +
-# provenance attestation fail.
-#
-# tickle-stick is unscoped, has a `tsc` build, runs no tests at publish time,
-# is public (provenance auto-attaches), and uses npm@11 — all of which are the
-# reusable workflow's defaults, so only the dry-run wiring is passed here.
+# Actions pinned to full commit SHAs (not mutable tags). A compromised
+# maintainer of any upstream action can retag `v6`/`release/v1`/etc. and
+# push malicious code into our next release, which our trusted-publishing
+# identity would then happily sign. SHA pins make action content
+# immutable — upgrades are explicit PRs, not silent.
+# Comment after each pin records the semver tag the SHA corresponded to
+# at pin time, for human-readable version tracking.
 
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Publish with --dry-run (validate the pipeline without a real publish)."
-        type: boolean
-        default: true
 
 permissions:
   contents: read
 
 jobs:
-  release:
-    name: Build + publish to npm (OIDC)
+  build-and-publish:
+    name: Build + publish to npm
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm provenance attestations via OIDC
-    uses: Kromatic-Innovation/code-workspace-config/.github/workflows/npm-oidc-publish.yml@main
-    with:
-      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      id-token: write         # npm provenance attestations via OIDC
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing requires npm >= 11.5.1 — Node 20 ships npm 10.x,
+      # which signs provenance attestations but doesn't perform the
+      # OIDC↔registry token exchange. Pin to the npm 11 line: `npm@latest`
+      # is now npm 12, which dropped Node 20 (requires node >=22) and fails
+      # this step with EBADENGINE. npm 11.x still supports Node 20
+      # (^20.17.0) and satisfies the >= 11.5.1 trusted-publishing floor.
+      - name: Upgrade npm to support trusted publishing
+        run: |
+          npm install -g npm@11
+          npm --version
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      # npm Trusted Publishing (OIDC) via the publisher configured on
+      # npmjs.com (Kromatic-Innovation/tickle-stick → release.yml). The
+      # v0.4.0 release attempts (tickle-stick#38) hit ENEEDAUTH/404 because
+      # OIDC detection needs npm >=11.5.1 (see the upgrade step above) —
+      # that was the actual bug, not a broken trusted publisher. Confirmed
+      # working since v0.4.1: CI logs show "Signed provenance statement
+      # ... from GitHub Actions" with no NPM_TOKEN secret present anywhere,
+      # org or repo. No stored credential of any kind is involved.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
