@@ -1,5 +1,48 @@
 name: Release
 
+# ⚠️  CANONICAL TEMPLATE — DO NOT HAND-EDIT PER REPO.
+#
+# This is the single source of truth for `release.yml` (npm publish) across
+# every Internal Platform repo that publishes to npm (registry
+# `publishingScheme: npm` — currently ideate-core / panelist / tickle-stick).
+# It is versioned in code-workspace-config at `templates/release-npm.yml` and
+# synced into each npm repo by `scripts/sync_promote_workflows.py` (mirror of
+# `derive_repo_configs.py` / the `promote-main.yml` sync). A CI drift-check
+# (`.github/workflows/promote-workflow-drift.yml`) reports divergence between a
+# repo's committed copy and this canonical content.
+#
+# To change the npm publish flow, edit THIS template and re-run the sync
+# script — never hand-edit a repo's `.github/workflows/release.yml`.
+# cwc#1559 / cwc#1439. End home: cron-fleet (rides cwc#1107).
+#
+# ─── Why template-and-sync, not a cross-repo reusable workflow ───────────────
+#
+# The earlier design (cwc#1439) centralised these steps into a reusable
+# `workflow_call` in cwc referenced at runtime as
+# `Kromatic-Innovation/code-workspace-config/.github/workflows/npm-oidc-publish.yml@main`.
+# That CANNOT work: cwc is a PRIVATE repo with `actions/permissions/access`
+# = `none`, while every consumer (ideate-core / panelist / tickle-stick) is
+# PUBLIC. tickle-stick#111 proved it — the migration merged, passed PR CI, and
+# then failed at dispatch with `workflow was not found` (an access failure, not
+# a missing file). Granting four public repos runtime access into the private
+# governance repo is a security-posture change, not a config tweak. So instead
+# we template-and-sync, exactly like `promote-main.yml` (cwc#1468):
+#
+#   - No cross-repo runtime access → public/private visibility is irrelevant.
+#   - No new private-repo exposure.
+#   - No OIDC caller ambiguity. npm Trusted Publishing validates the CALLING
+#     workflow's filename, so keeping the publish inline in each repo's own
+#     `release.yml` keeps the existing Trusted Publisher configuration valid.
+#
+# The trade-off (each repo carries a copy) is made safe by the drift-check —
+# the same trade the fleet already accepted for `promote-main.yml`.
+#
+# This template is repo-agnostic: `npm publish` reads the package name from the
+# repo's own `package.json`, and Trusted Publishing keys on the `release.yml`
+# filename (identical across every repo), so the same bytes publish the correct
+# package in whichever repo they land in. Authored from tickle-stick's
+# known-good inline `release.yml` (the v0.6.x publisher).
+#
 # Actions pinned to full commit SHAs (not mutable tags). A compromised
 # maintainer of any upstream action can retag `v6`/`release/v1`/etc. and
 # push malicious code into our next release, which our trusted-publishing
@@ -53,12 +96,12 @@ jobs:
         run: npm pack --dry-run
 
       # npm Trusted Publishing (OIDC) via the publisher configured on
-      # npmjs.com (Kromatic-Innovation/tickle-stick → release.yml). The
-      # v0.4.0 release attempts (tickle-stick#38) hit ENEEDAUTH/404 because
-      # OIDC detection needs npm >=11.5.1 (see the upgrade step above) —
-      # that was the actual bug, not a broken trusted publisher. Confirmed
-      # working since v0.4.1: CI logs show "Signed provenance statement
-      # ... from GitHub Actions" with no NPM_TOKEN secret present anywhere,
-      # org or repo. No stored credential of any kind is involved.
+      # npmjs.com for each package (owner Kromatic-Innovation, the package's
+      # own repo, workflow release.yml). No NPM_TOKEN secret is present
+      # anywhere — org or repo. CI logs show "Signed provenance statement
+      # ... from GitHub Actions" with no stored credential of any kind.
+      # OIDC detection needs npm >= 11.5.1 (see the upgrade step above); a
+      # 404/ENEEDAUTH here is that floor not being met, not a broken
+      # publisher. Confirmed working on tickle-stick since v0.4.1.
       - name: Publish to npm
         run: npm publish --provenance --access public
