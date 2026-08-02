@@ -5,6 +5,18 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] — 2026-08-02
+
+Maintenance release. No consumer-visible or breaking changes.
+
+### Changed
+
+- **Adopted public-safe OSS lint**, wired into the required CI aggregate — a
+  new `.github/public-safe-lint.sh` check now runs as part of `ci-required`.
+  Fixed `~`-path leaks it caught in `skill/SKILL.md` and `.gitignore`, and
+  added a `.public-safe-lintignore` for intentional exclusions. (#131,
+  tickle-stick#130)
+
 ## [0.6.2] — 2026-07-21
 
 Maintenance release. No consumer-visible or breaking changes.
