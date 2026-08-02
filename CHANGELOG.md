@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Maintenance release. No consumer-visible or breaking changes.
 
+### Fixed
+
+- **`brace-expansion` security fix** — bumped 5.0.7 → 5.0.8 (GHSA-mh99-v99m-4gvg,
+  DoS via unbounded expansion length). (#124)
+- **`postcss` security fix** — bumped 8.5.16 → 8.5.24 (GHSA-r28c-9q8g-f849, path
+  traversal in previous-source-map auto-loading, high severity). (#124)
+
 ### Changed
 
 - **Adopted public-safe OSS lint**, wired into the required CI aggregate — a
@@ -16,6 +23,12 @@ Maintenance release. No consumer-visible or breaking changes.
   Fixed `~`-path leaks it caught in `skill/SKILL.md` and `.gitignore`, and
   added a `.public-safe-lintignore` for intentional exclusions. (#131,
   tickle-stick#130)
+- **CI workflow re-syncs to canonical templates** — `release.yml` and
+  `promote-main.yml` re-synced to the canonical Internal Platform template
+  (comment/drift-only, no behavior change). (#125, #128, #129)
+- **`actions/checkout`** bumped 6 → 7. (#122)
+- Dev-dependency group bump: `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`,
+  `eslint` (8.64.0/10.7.0 → 8.65.0/10.8.0). (#123)
 
 ## [0.6.2] — 2026-07-21
 
