@@ -40,7 +40,7 @@ credentials.json
 # Internal agent-policy overlay — workspace-internal, never published
 AGENTS.local.md
 
-# Derived from ~/Code/docs/project-registry.yaml by
+# Derived from the workspace's own project-registry config by
 # scripts/derive_repo_configs.py — local artifacts, never committed.
 .agents/
 .codex/

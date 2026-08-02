@@ -38,7 +38,7 @@ Every pipeline starts with a gather stage (Tier 0 script) that fetches raw
 data. This is free and deterministic.
 
 - What data source? (Gmail, Calendar, GitHub, RSS, database)
-- What wrapper script exists? (check `scripts/` or `~/.openclaw/workspace/scripts/`)
+- What wrapper script exists? (check the project's own `scripts/` directory or your workspace's local scripts directory)
 - What's the output format? Must be `WorkItem[]` JSON on stdout
 - What dedup mechanism? (labels, timestamps, database flags)
 

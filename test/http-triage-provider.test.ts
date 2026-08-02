@@ -247,7 +247,7 @@ describe("HttpTriageProvider", () => {
           {
             message: {
               content:
-                '{"moscow":"must","proposed_action":"revert #1234","affected_users":150,"confidence":0.85}',
+                '{"moscow":"must","proposed_action":"revert PR 1234","affected_users":150,"confidence":0.85}',
             },
           },
         ],
@@ -258,7 +258,7 @@ describe("HttpTriageProvider", () => {
         "MoSCoW system prompt",
       );
       expect(raw).toBe(
-        '{"moscow":"must","proposed_action":"revert #1234","affected_users":150,"confidence":0.85}',
+        '{"moscow":"must","proposed_action":"revert PR 1234","affected_users":150,"confidence":0.85}',
       );
     });
 

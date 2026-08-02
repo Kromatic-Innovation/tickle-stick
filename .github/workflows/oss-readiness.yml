@@ -1,7 +1,7 @@
 name: OSS Readiness
 
 # Deterministic OSS-readiness gate. Composes existing, well-known tools rather
-# than reimplementing checks (see #99, refs hestia#583/#552):
+# than reimplementing checks (see tickle-stick#99, refs hestia#583/#552):
 #   - community/license health-file presence  (the "REUSE (license+community
 #     files)" intent, adapted: full REUSE SPDX-header linting is out of scope
 #     for this repo and would require per-file SPDX annotation)

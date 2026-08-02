@@ -1,0 +1,11 @@
+# public-safe-lint suppressions for this repo.
+# Format: <rule-name> <path-glob>  (see .github/public-safe-lint.sh header
+# for the full mechanism). Exemptions here are a per-repo policy call and
+# must be justified in the PR that adds them (tickle-stick#130).
+#
+# CHANGELOG.md cites this repo's own already-public issue numbers using the
+# standard bare hash-number changelog convention. Every number is a
+# same-repo, already-public GitHub issue reference, not a private-tracker
+# leak -- rewriting decades of changelog entries to a qualified form would
+# be pure churn for no safety gain. Exempted from bare-issue-ref only.
+bare-issue-ref CHANGELOG.md
