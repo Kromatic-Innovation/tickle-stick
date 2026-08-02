@@ -405,7 +405,7 @@ describe("Pipeline", () => {
     expect(onError).toHaveBeenCalledWith("bad", expect.any(Error), "stage");
   });
 
-  it("surfaces a swallowed classify error via onError and still falls back to needs-reasoning (#84)", async () => {
+  it("surfaces a swallowed classify error via onError and still falls back to needs-reasoning (tickle-stick#84)", async () => {
     const onError = vi.fn();
     const throwingProvider: TriageProvider = {
       name: "throwing",

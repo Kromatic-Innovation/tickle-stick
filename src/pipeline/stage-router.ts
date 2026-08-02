@@ -34,7 +34,7 @@ export interface StageRouterOptions {
  * owns the stage-body execution itself.
  *
  * Pulled out of `Pipeline` to keep that class focused on orchestration
- * concerns. See `pre-1.0` plan in #34 for the rationale.
+ * concerns. See `pre-1.0` plan in tickle-stick#34 for the rationale.
  */
 export class StageRouter {
   private readonly pipelineName: string;
@@ -229,7 +229,7 @@ export class StageRouter {
       } catch (err) {
         // Classification failed → escalate to needs-reasoning.
         // Surface the otherwise-swallowed error via onError so a dead LLM tier
-        // is diagnosable (#84); the fallback below is unchanged. We deliberately
+        // is diagnosable (tickle-stick#84); the fallback below is unchanged. We deliberately
         // do NOT set result.errored here — this is pure observability and must
         // not alter output.errors surfacing that downstream consumers key off.
         this.onError?.(stage.name, err, "stage");

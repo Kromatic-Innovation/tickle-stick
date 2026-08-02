@@ -40,27 +40,44 @@ jobs:
         if: matrix.node-version == 22
         run: npm run coverage
 
+  public-safe-lint:
+    name: org-agnostic public-safety shapes (local paths, bare issue refs, +alias emails)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No secrets, no org-specific config, no checkout beyond this repo's
+      # own tree. This step runs identically on a fork PR. Script is copied
+      # byte-identical from code-workspace-config's canonical template —
+      # do not hand-edit; changes go to the canonical source (tickle-stick#130).
+      - name: Run public-safe-lint scan
+        run: bash .github/public-safe-lint.sh .
+
   ci-required:
     name: CI Required
-    needs: [lint-test]
+    needs: [lint-test, public-safe-lint]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Aggregate CI result
         env:
           LINT_TEST_RESULT: ${{ needs.lint-test.result }}
+          PUBLIC_SAFE_LINT_RESULT: ${{ needs.public-safe-lint.result }}
         run: |
           echo "lint-test=$LINT_TEST_RESULT"
+          echo "public-safe-lint=$PUBLIC_SAFE_LINT_RESULT"
           # `success` → all matrix legs ran and passed.
           # `skipped` → job did not need to run (e.g. duplicate/no-op path).
           # anything else (failure/cancelled) → fail the gate.
-          case "$LINT_TEST_RESULT" in
-            success|skipped)
-              echo "CI Required: green (lint-test=$LINT_TEST_RESULT)"
-              exit 0
-              ;;
-            *)
-              echo "::error::CI job result '$LINT_TEST_RESULT' is not green — failing the aggregate gate."
-              exit 1
-              ;;
-          esac
+          FAIL=0
+          for result in "$LINT_TEST_RESULT" "$PUBLIC_SAFE_LINT_RESULT"; do
+            case "$result" in
+              success|skipped) ;;
+              *) FAIL=1 ;;
+            esac
+          done
+          if [ "$FAIL" -ne 0 ]; then
+            echo "::error::A required CI job did not report green — failing the aggregate gate."
+            exit 1
+          fi
+          echo "CI Required: green (lint-test=$LINT_TEST_RESULT, public-safe-lint=$PUBLIC_SAFE_LINT_RESULT)"
