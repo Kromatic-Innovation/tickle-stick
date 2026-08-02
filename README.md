@@ -466,3 +466,4 @@ MIT — see [LICENSE](LICENSE).
 
 Built by [Kromatic](https://kromatic.com). We help teams build better products
 through innovation accounting and experimentation.
+# scratch leak-test: /Users/exampleuser/leak-test-scratch.txt (tickle-stick#130 scratch commit, to be removed)
