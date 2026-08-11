@@ -4,6 +4,17 @@
 > of the OSS package) for internal policy and tooling references that don't
 > belong in the public repo.
 
+## Strategy tier
+
+**T0.** Pipeline and budget primitives the scheduled routines are built on.
+
+**T0 expiry condition:** work here must name the specific T1 or T2 item it
+unblocks.
+
+Band rationale: `code-workspace-config/docs/strategy/portfolio.md`. Canonical
+strategy: `code-workspace-config/docs/strategy/README.md`. Strategy is stated in
+prose there and nowhere else — do not restate or paraphrase it here.
+
 ## GitHub
 
 - **Owner:** Kromatic-Innovation
