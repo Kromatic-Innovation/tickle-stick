@@ -9,6 +9,20 @@ on:
     branches: [develop]
   pull_request:
     branches: [develop]
+  # Manual escape hatch (tickle-stick#151). A develop tip can end up with no
+  # `CI Required` check-run at all — a push made with the default
+  # `GITHUB_TOKEN` does not trigger workflows, so a Dependabot auto-merge
+  # landed under that identity stamps nothing. `promote-main.yml` needs a
+  # green `CI Required` on the tip it promotes; when its PR-head fallback
+  # cannot help (the promoted tree matches no tested PR head), its rung-3
+  # step dispatches THIS workflow to produce that evidence, and that dispatch
+  # fails outright unless `workflow_dispatch` is declared here (cwc#2749).
+  #
+  # Every job below is unconditional with respect to the triggering event —
+  # no `if:` reads `github.event.pull_request`, `github.head_ref` or
+  # `github.base_ref` — so the `CI Required` fan-in behaves identically on a
+  # dispatch as on a pull_request. `test/ci-workflow.test.ts` enforces that.
+  workflow_dispatch:
 
 jobs:
   lint-test:

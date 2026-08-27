@@ -84,13 +84,43 @@ jobs:
               ;;
           esac
 
+      # tickle-stick#151. Enable auto-merge under an App token, NOT the default
+      # `GITHUB_TOKEN`. A push made with `GITHUB_TOKEN` does not trigger further
+      # workflow runs, so every tip landed by this step arrived on develop with
+      # no `CI Required` check-run at all and `promote-main.yml`'s `ci_green`
+      # gate had nothing to read. Enabling auto-merge under an App identity
+      # makes the eventual merge push a normal, workflow-triggering push, so
+      # `ci.yaml`'s `push: [develop]` run stamps the tip the usual way.
+      #
+      # PROVISIONING PREREQUISITE — see the operator follow-up linked from
+      # tickle-stick#151. `PROMOTION_BOT_TOKEN` currently exists as an
+      # ORGANIZATION ACTIONS secret, and that store is the wrong one for this
+      # workflow: "When a Dependabot event triggers a workflow, the only
+      # secrets available to the workflow are Dependabot secrets. GitHub
+      # Actions secrets are not available."
+      # (docs.github.com/en/code-security/dependabot/troubleshooting-dependabot
+      #  /troubleshooting-dependabot-on-github-actions#accessing-secrets)
+      # The same doc's recommended remedy is to store the token under the SAME
+      # NAME in both stores, which is exactly what the follow-up asks for.
+      # Until the Dependabot-store copy exists, `secrets.PROMOTION_BOT_TOKEN`
+      # resolves to the empty string here, so the step falls back to
+      # `GITHUB_TOKEN` and warns loudly rather than failing auth and leaving
+      # Dependabot PRs to pile up unmerged. The fallback is today's behaviour
+      # exactly — it cannot regress anything — and the fix activates by itself,
+      # with no further code change, the moment the secret is provisioned.
       - name: Enable auto-merge (squash)
         if: steps.gate.outputs.eligible == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PROMOTION_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          USING_APP_TOKEN: ${{ secrets.PROMOTION_BOT_TOKEN != '' }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           REASON: ${{ steps.gate.outputs.reason }}
         run: |
+          if [ "$USING_APP_TOKEN" = "true" ]; then
+            echo "Merge identity: PROMOTION_BOT_TOKEN (push will trigger CI on develop)."
+          else
+            echo "::warning::PROMOTION_BOT_TOKEN is not visible to this Dependabot-triggered run, so auto-merge falls back to GITHUB_TOKEN and the resulting develop tip will carry no 'CI Required' check-run (tickle-stick#151). Store PROMOTION_BOT_TOKEN as a DEPENDABOT secret (Settings > Secrets and variables > Dependabot) under the same name as the existing Actions secret."
+          fi
           echo "Enabling auto-merge: $REASON"
           gh pr merge --auto --squash "$PR_URL"
 
