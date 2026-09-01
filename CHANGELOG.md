@@ -5,6 +5,12 @@ All notable changes to Tickle-Stick are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`1password/load-secrets-action`** bumped 5.0.0 → 5.0.1 (patch, pinned by SHA). (#156)
+
 ## [0.6.3] — 2026-08-02
 
 Maintenance release. No consumer-visible or breaking changes.
