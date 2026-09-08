@@ -44,15 +44,21 @@ bumps are routine Dependabot traffic that rode along in the same window.
 - **`release.yml` re-synced** from the canonical Internal Platform template
   after the `actions/checkout` v7.0.1 bump. (#143)
 - **`actions/checkout`** bumped 7.0.0 → 7.0.1 (pinned by SHA). (#135)
-- **`1password/load-secrets-action`** bumped 4.1.1 → 5.0.1, and the CLI install
-  step moved to `1password/install-cli-action` (pinned by SHA). (#136, #148, #156)
+- **`1password/load-secrets-action`** bumped 4.1.1 → 5.0.1 across three
+  Dependabot PRs (pinned by SHA). (#136, #148, #156)
+- **1Password secret loading replaced with `1password/install-cli-action`**
+  (v4.1.0, pinned by SHA) in `promote-main.yml`, as part of the canonical
+  re-sync. This is an action swap, not a version bump — the repo no longer
+  uses `load-secrets-action` anywhere.
 - **`public-safe-lint.sh` per-rule canary re-synced** from canonical (cwc#2025). (#134)
 
 ### Security
 
-- **`brace-expansion` lockfile bump** 5.0.8 → 5.0.9, closing Dependabot alerts
-  #11–#16. Dev-toolchain only; `npm audit --omit=dev` reports zero
-  vulnerabilities for the published package. (#138)
+- **`brace-expansion` lockfile bump** 5.0.8 → 5.0.9, resolving
+  **GHSA-rgw5-rvv9-x895** (high) — DoS via unbounded intermediate arrays,
+  which bypassed the earlier CVE-2026-14257 mitigation. Dev-toolchain only;
+  `npm audit --omit=dev` reports zero vulnerabilities for the published
+  package. (#138)
 
 ### Dev-tooling only
 
@@ -66,8 +72,8 @@ These affect contributors, not consumers. None ship in the published package
   across `@types/node`, `@typescript-eslint/*`, and `typescript`. (#140, #145,
   #147, #149, #157, #178)
 - **`typescript` 6 → 7 is deliberately NOT taken** in this release. PR #150 is
-  held open and labelled `moscow:wont` pending a compatibility pass rather than
-  merged silently.
+  left open pending a compatibility pass rather than merged into a maintenance
+  release.
 
 ## [0.6.3] — 2026-08-02
 
