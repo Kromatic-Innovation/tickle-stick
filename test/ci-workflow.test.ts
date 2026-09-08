@@ -102,27 +102,24 @@ describe("ci.yaml", () => {
 describe("dependabot-auto-merge.yml", () => {
   const workflow = loadWorkflow("dependabot-auto-merge.yml");
 
-  it("enables auto-merge under PROMOTION_BOT_TOKEN, not GITHUB_TOKEN alone", () => {
+  it("enables auto-merge under GITHUB_TOKEN, gated on eligibility, with no PROMOTION_BOT_TOKEN reference", () => {
     const jobs = workflow.jobs as Record<
       string,
-      { steps: { name?: string; env?: Record<string, string> }[] }
+      { steps: { name?: string; if?: string; env?: Record<string, string> }[] }
     >;
     const steps = Object.values(jobs).flatMap((job) => job.steps);
     const merge = steps.find((step) => step.name?.includes("Enable auto-merge"));
 
     expect(merge, "the auto-merge step is present").toBeDefined();
 
+    expect(merge?.if).toBe("steps.gate.outputs.eligible == 'true'");
+
     const ghToken = merge?.env?.GH_TOKEN ?? "";
-    // A merge pushed with the default `GITHUB_TOKEN` does not trigger further
-    // workflow runs, so the develop tip it lands is never stamped with a
-    // `CI Required` check-run. The App token must be the primary identity;
-    // `GITHUB_TOKEN` may appear only as the trailing fallback that keeps
-    // auto-merge working until the Dependabot-store secret is provisioned.
-    expect(ghToken).toContain("secrets.PROMOTION_BOT_TOKEN");
-    expect(ghToken.indexOf("secrets.PROMOTION_BOT_TOKEN")).toBeLessThan(
-      ghToken.indexOf("secrets.GITHUB_TOKEN") === -1
-        ? Number.MAX_SAFE_INTEGER
-        : ghToken.indexOf("secrets.GITHUB_TOKEN"),
-    );
+    // PROMOTION_BOT_TOKEN's value is unrecoverable and its 1Password mapping
+    // points at a vault that does not exist, so this step now runs solely
+    // under the default GITHUB_TOKEN (tickle-stick#154). promote-main.yml
+    // rung 2 already covers the resulting unstamped develop tip.
+    expect(ghToken).toBe("${{ secrets.GITHUB_TOKEN }}");
+    expect(ghToken).not.toContain("PROMOTION_BOT_TOKEN");
   });
 });
