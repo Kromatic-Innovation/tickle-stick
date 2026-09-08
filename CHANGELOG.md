@@ -7,9 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] — 2026-09-08
+
+Maintenance release. No consumer-visible or breaking changes — `src/` is
+byte-identical to 0.6.3, so upgrading from 0.6.3 changes no runtime behaviour.
+
+The release thesis is the **repair of the promotion pipeline** (#153,
+"tickle-stick cannot promote: no CI stamp on the develop tip"), which had left
+the repo unable to promote `develop` to `main` at all. Everything under *Fixed*,
+and the workflow entries under *Changed*, serves that repair; the dependency
+bumps are routine Dependabot traffic that rode along in the same window.
+
+### Fixed
+
+- **Promotion pipeline unblocked** — `develop` CI was never stamped for
+  Dependabot merges, so the promote-to-`main` gate could never find a green
+  commit to promote. `ci.yaml` gained a `workflow_dispatch` trigger and
+  `dependabot-auto-merge.yml` gained an App-token merge fallback, restoring
+  promotion. Lands with a dedicated `test/ci-workflow.test.ts` asserting both
+  invariants the promotion path depends on. (#151, #155)
+- **`PROMOTION_BOT_TOKEN` retired** — the secret was unrecoverable, leaving the
+  Dependabot auto-merge path broken on a credential nothing could re-issue.
+  Removed in favour of the agent App token. (#154, #182)
+
 ### Changed
 
-- **`1password/load-secrets-action`** bumped 5.0.0 → 5.0.1 (patch, pinned by SHA). (#156)
+- **`promote-main.yml` re-synced to the canonical standalone workflow** (#173,
+  #176, #177). The history for this file inside the release window shows an
+  adopt → revert → re-adopt cycle on 2026-09-06. That churn is retained
+  deliberately rather than squashed: the `workflow_call` stub form was adopted,
+  reverted when it proved incompatible, then re-adopted in its self-contained
+  form. A public repo cannot resolve a `workflow_call` into the private
+  `code-workspace-config` repo — the same constraint documented at length in
+  `release.yml`. The revert commit is the evidence for why the stub form cannot
+  be re-attempted, so it is kept in history on purpose.
+- **`release.yml` re-synced** from the canonical Internal Platform template
+  after the `actions/checkout` v7.0.1 bump. (#143)
+- **`actions/checkout`** bumped 7.0.0 → 7.0.1 (pinned by SHA). (#135)
+- **`1password/load-secrets-action`** bumped 4.1.1 → 5.0.1, and the CLI install
+  step moved to `1password/install-cli-action` (pinned by SHA). (#136, #148, #156)
+- **`public-safe-lint.sh` per-rule canary re-synced** from canonical (cwc#2025). (#134)
+
+### Security
+
+- **`brace-expansion` lockfile bump** 5.0.8 → 5.0.9, closing Dependabot alerts
+  #11–#16. Dev-toolchain only; `npm audit --omit=dev` reports zero
+  vulnerabilities for the published package. (#138)
+
+### Dev-tooling only
+
+These affect contributors, not consumers. None ship in the published package
+(`files` is `dist`, `src`, `README.md`, `LICENSE`).
+
+- **`vitest` and `@vitest/coverage-v8` bumped 4.x → 5.0.0 — a major bump.**
+  Test-runner only; no runtime or published-artifact effect. The full suite
+  (139 tests) passes on 5.0.0. (#179)
+- **`eslint`** 10.8.0 → 10.8.1, plus `npm-minor` / `npm-patch` group bumps
+  across `@types/node`, `@typescript-eslint/*`, and `typescript`. (#140, #145,
+  #147, #149, #157, #178)
+- **`typescript` 6 → 7 is deliberately NOT taken** in this release. PR #150 is
+  held open and labelled `moscow:wont` pending a compatibility pass rather than
+  merged silently.
 
 ## [0.6.3] — 2026-08-02
 
@@ -314,6 +372,10 @@ stabilization in
   489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
   prune, asymmetric provider API.
 
+[0.6.4]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.4
+[0.6.3]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.3
+[0.6.2]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.2
+[0.6.1]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.1
 [0.6.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.5.0
 [0.4.2]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.4.2

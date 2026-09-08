@@ -6,6 +6,19 @@ Tickle-stick is pre-1.0. Only the latest release on `main` is supported with
 security patches. Fixes land on `develop` first and are promoted to `main`
 via the `Promote Main` workflow.
 
+### Dependabot alerts closed without a fix
+
+Some Dependabot alerts on this repo are closed as `moscow:wont` rather than
+patched. These are **dev-toolchain-only** findings — they affect packages used
+to build and test tickle-stick, not anything shipped in the published artifact.
+The npm package contains only `dist`, `src`, `README.md`, and `LICENSE`
+(see `files` in `package.json`), and `npm audit --omit=dev` reports zero
+vulnerabilities against it.
+
+If you find an alert that you believe *does* reach the published package,
+treat that as a vulnerability report and use the process below — a
+misclassified alert is exactly the kind of thing we want to hear about.
+
 ## Reporting a vulnerability
 
 Please report security vulnerabilities privately via email to
