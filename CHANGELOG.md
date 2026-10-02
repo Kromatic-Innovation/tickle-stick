@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] — 2026-10-01
+
+Maintenance release. No consumer-visible or breaking changes — `src/` is
+unchanged since 0.6.4; upgrading changes no runtime behaviour.
+
+### Changed
+
+- **Dependencies** — routine Dependabot bumps: npm-minor group (4 updates,
+  #195), `@types/node` (#196), npm-patch groups (#198, #199), and the
+  npm-minor dev group (#201).
+- **`promote-main.yml` re-synced from canonical** — short-SHA validation
+  (cwc#3349 / cwc#3350). (#197)
+- **`release.yml` re-synced from canonical** — creates the GitHub Release
+  object after the npm publish, sending `make_latest=legacy` via the REST API
+  so a backport tag can never demote the newest release. (#186)
+
 ## [0.6.4] — 2026-09-08
 
 Maintenance release. No consumer-visible or breaking changes — `src/` is
