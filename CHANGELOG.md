@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.6] — 2026-10-15
+
+Maintenance release. No consumer-visible or breaking changes — `src/` is
+unchanged since 0.6.5; upgrading changes no runtime behaviour.
+
+### Security
+
+- **`brace-expansion` 5.0.9 → 5.0.12** — resolves Dependabot alert #33
+  (transitive dev dependency). (#208)
+
+### Changed
+
+- **Dependencies** — routine Dependabot bumps: npm-minor dev group (2 updates,
+  #205), npm-patch dev groups (3 updates each, #204, #228),
+  `eslint` 10.11.0 → 10.12.0 (#226), `@typescript-eslint/*` 8.71.0 → 8.71.1
+  (#227).
+- **`actions/setup-node` bumped** across `ci.yaml`, `oss-readiness.yml`, and
+  `release.yml`. (#221)
+
 ## [0.6.5] — 2026-10-01
 
 Maintenance release. No consumer-visible or breaking changes — `src/` is
