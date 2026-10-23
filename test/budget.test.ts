@@ -191,6 +191,50 @@ describe("BudgetManager", () => {
     expect(capCalls.length).toBe(1);
   });
 
+  it("clears the exceeded latch once window spend drops back under the cap, via refresh() alone (tickle-stick#240)", async () => {
+    const mgr = new BudgetManager({
+      config: makeConfig({ maxDailySpend: 0.01 }),
+      storage,
+      alertSink,
+    });
+
+    await mgr.record(makeEvent(0.02));
+    expect(mgr.isBudgetExceeded()).toBe(true);
+
+    // Simulate window spend dropping back under the cap without any
+    // further costed event (e.g. the cheap tier was skipped entirely, so
+    // record() never runs again) — only refresh() is called.
+    storage.events.length = 0;
+    await mgr.refresh();
+
+    expect(mgr.isBudgetExceeded()).toBe(false);
+  });
+
+  it("refresh() re-trips the cap from storage without a costed event", async () => {
+    const mgr = new BudgetManager({
+      config: makeConfig({ maxDailySpend: 0.01 }),
+      storage,
+    });
+
+    expect(mgr.isBudgetExceeded()).toBe(false);
+
+    // Spend accrues via some other path (e.g. a sibling Pipeline instance
+    // sharing storage) with no record() call on this instance.
+    storage.events.push(makeEvent(0.02));
+    await mgr.refresh();
+
+    expect(mgr.isBudgetExceeded()).toBe(true);
+  });
+
+  it("refresh() is a no-op without storage (no persistence, no enforcement)", async () => {
+    const mgr = new BudgetManager({
+      config: makeConfig({ maxDailySpend: 0.01 }),
+    });
+
+    await mgr.refresh();
+    expect(mgr.isBudgetExceeded()).toBe(false);
+  });
+
   it("works without storage (no persistence, no budget enforcement)", async () => {
     const mgr = new BudgetManager({
       config: makeConfig({ maxDailySpend: 0.01 }),

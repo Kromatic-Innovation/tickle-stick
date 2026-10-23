@@ -109,6 +109,15 @@ export class Pipeline {
 
   async run(): Promise<PipelineResult> {
     const pipelineStart = performance.now();
+
+    // Re-check the budget cap against storage before the stage loop starts.
+    // Without this, a long-lived Pipeline that already skipped the cheap
+    // tier never issues another costed event, so the cap can never clear
+    // on day/week rollover, and a freshly-constructed Pipeline whose
+    // storage is already over the cap starts with `exceeded` false and
+    // under-enforces its first run (tickle-stick#240).
+    await this.budgetManager?.refresh();
+
     const context: PipelineContext = {
       allItems: [],
       classified: [],

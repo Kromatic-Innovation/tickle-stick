@@ -105,6 +105,19 @@ export class BudgetManager {
     return this.exceeded;
   }
 
+  /**
+   * Re-evaluate budget state against storage without recording a costed
+   * event. `checkBudget()` below is otherwise only reachable via `record()`,
+   * which the budget-gated skip path starves of costed events once the cap
+   * trips (tickle-stick#240) — so a latched `exceeded` flag never got a
+   * chance to clear, and a fresh instance never got a chance to see prior
+   * spend. Call this at `Pipeline` start (or first stage use) and on a
+   * bounded cadence from the cheap-tier loop.
+   */
+  async refresh(): Promise<void> {
+    await this.checkBudget();
+  }
+
   /** Query spend and check thresholds. Call after recording events. */
   async checkBudget(): Promise<void> {
     if (!this.storage) return;
@@ -117,7 +130,6 @@ export class BudgetManager {
     if (today !== this.currentDay) {
       this.alertsSent.clear();
       this.currentDay = today;
-      this.exceeded = false;
       this.prune().catch(() => {
         /* best-effort retention enforcement; do not block budget checks */
       });
@@ -129,9 +141,15 @@ export class BudgetManager {
     const dailySpend = await this.storage.getSpendSince(dayStart);
     const weeklySpend = await this.storage.getSpendSince(weekStart);
 
+    // Recomputed fresh from current spend on every call — not sticky-true
+    // -only — so a cap trip clears as soon as window spend drops back under
+    // the limit, whether that's this same window or a rollover into a new
+    // one (tickle-stick#240).
+    let exceeded = false;
+
     // Check caps
     if (this.config.maxDailySpend && dailySpend >= this.config.maxDailySpend) {
-      this.exceeded = true;
+      exceeded = true;
       await this.fireAlert({
         type: "cap",
         level: "daily",
@@ -146,7 +164,7 @@ export class BudgetManager {
       this.config.maxWeeklySpend &&
       weeklySpend >= this.config.maxWeeklySpend
     ) {
-      this.exceeded = true;
+      exceeded = true;
       await this.fireAlert({
         type: "cap",
         level: "weekly",
@@ -156,6 +174,8 @@ export class BudgetManager {
         message: `Weekly triage budget exceeded ($${weeklySpend.toFixed(2)}/$${this.config.maxWeeklySpend.toFixed(2)}). Tier 1 disabled, Tier 0 only.`,
       });
     }
+
+    this.exceeded = exceeded;
 
     // Check alert thresholds
     for (const alert of this.parsedAlerts) {
