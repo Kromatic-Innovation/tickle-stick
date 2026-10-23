@@ -222,7 +222,15 @@ export class StageRouter {
         i > 0 &&
         i % StageRouter.BUDGET_RECHECK_INTERVAL === 0
       ) {
-        await this.budgetManager.refresh();
+        try {
+          await this.budgetManager.refresh();
+        } catch (err) {
+          // A refresh failure here is bookkeeping-only; it must not abort
+          // the loop and discard items already classified in this stage
+          // (tickle-stick#240, Finding 1). Report it and fall through on
+          // the last cached isBudgetExceeded() value below.
+          this.onError?.(stage.name, err, "stage");
+        }
         if (this.budgetManager.isBudgetExceeded()) break;
       }
 
