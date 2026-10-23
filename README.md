@@ -418,6 +418,16 @@ const storage: StorageAdapter = {
 };
 ```
 
+`writeEvent` receives exactly one cost-bearing (`costEstimate > 0`) row per
+classified item — the per-item event carries `granularity: "call"`. The
+stage-aggregate event emitted once per stage (`granularity: "stage"`) always
+carries `costEstimate: 0`, so a plain `SELECT SUM(cost_estimate)` adapter
+like the one above sums each dollar exactly once going forward. `getSpendSince`'s
+unit (USD) and semantics (sum since a given ISO timestamp) are unchanged — only
+which rows are written to it changed. **A `SUM` over rows already written by
+an older version still double-counts** until those pre-existing rows are
+pruned; this does not rewrite or backfill history.
+
 ### Alert Sink
 
 ```typescript

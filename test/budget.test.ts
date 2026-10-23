@@ -16,6 +16,9 @@ function makeEvent(cost = 0.001): TelemetryEvent {
     latencyMs: 50,
     costEstimate: cost,
     timestamp: new Date().toISOString(),
+    // These exercise BudgetManager.record() directly with a representative
+    // per-item costed event (tickle-stick#254 made granularity required).
+    granularity: "call",
   };
 }
 

@@ -287,8 +287,12 @@ describe("Pipeline", () => {
     await pipeline.run();
     const metrics = pipeline.getMetrics();
 
-    // gather stage event + 2 classify events + classify stage event
-    expect(metrics.totalProcessed).toBeGreaterThanOrEqual(3);
+    // totalProcessed counts classified items only (2), not the stage
+    // rollup events (gather's "found" event, classify's own stage-complete
+    // event) — those carry granularity "stage" and are excluded from
+    // MetricsCollector so a stage event can't be double-counted as an item
+    // (tickle-stick#254).
+    expect(metrics.totalProcessed).toBe(2);
   });
 
   it("resets metrics", async () => {

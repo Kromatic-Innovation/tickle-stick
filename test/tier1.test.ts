@@ -82,7 +82,7 @@ describe("Tier 1: Classification", () => {
       confidence: 0.9,
       tokenUsage: { input: 100, output: 50 },
     });
-    const { costEstimate } = await classifyItem(
+    const { costEstimate, costBasis } = await classifyItem(
       makeItem("test"),
       stageConfig,
       provider,
@@ -90,20 +90,23 @@ describe("Tier 1: Classification", () => {
 
     expect(costEstimate).toBeGreaterThan(0);
     expect(costEstimate).toBeLessThan(0.01);
+    // Measured from real token usage, not the flat-rate fallback.
+    expect(costBasis).toBeUndefined();
   });
 
-  it("uses default cost estimate when no token usage", async () => {
+  it("uses default cost estimate when no token usage, flagged costBasis \"estimated\" (tickle-stick#254, AC4)", async () => {
     const provider = mockProvider({
       classification: "routine",
       confidence: 0.9,
     });
-    const { costEstimate } = await classifyItem(
+    const { costEstimate, costBasis } = await classifyItem(
       makeItem("test"),
       stageConfig,
       provider,
     );
 
     expect(costEstimate).toBe(0.001);
+    expect(costBasis).toBe("estimated");
   });
 
   it("tracks latency", async () => {

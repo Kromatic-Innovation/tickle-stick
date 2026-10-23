@@ -27,6 +27,13 @@ export async function classifyItem(
   provider?: string;
   model?: string;
   failureReason?: string;
+  /**
+   * "estimated" when `costEstimate` came from the flat
+   * `DEFAULT_COST_ESTIMATE` (or `config.defaultCostEstimate`) fallback
+   * rather than the provider's reported token usage — so the event is
+   * never a silent default (tickle-stick#254, AC4).
+   */
+  costBasis?: "estimated";
 }> {
   const start = performance.now();
 
@@ -59,12 +66,14 @@ export async function classifyItem(
   // genuinely returning low-confidence output — charge zero cost instead of
   // falling back to DEFAULT_COST_ESTIMATE for work that produced nothing.
   let costEstimate = 0;
+  let costBasis: "estimated" | undefined;
   if (result.tokenUsage) {
     costEstimate =
       result.tokenUsage.input * inputRate +
       result.tokenUsage.output * outputRate;
   } else if (!result.failureReason) {
     costEstimate = config.defaultCostEstimate ?? DEFAULT_COST_ESTIMATE;
+    costBasis = "estimated";
   }
 
   // Below confidence threshold → escalate to reasoning
@@ -90,5 +99,6 @@ export async function classifyItem(
     provider: result.provider,
     model: result.model,
     failureReason: result.failureReason,
+    costBasis,
   };
 }

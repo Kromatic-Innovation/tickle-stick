@@ -808,3 +808,151 @@ describe("Budget-cap model-stage skip (tickle-stick#241, operator ruling D2)", (
     expect(skipErrorCalls).toHaveLength(2);
   });
 });
+
+describe("Spend recorded once per item, not once per stage too (tickle-stick#254)", () => {
+  it("emits exactly one costed event per classified item and a zero-cost stage aggregate (AC1/AC2/AC5)", async () => {
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+      tokenUsage: { input: 100, output: 20 },
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    const pipeline = new Pipeline({
+      name: "no-double-count",
+      config: {
+        stages: [
+          scriptStageForItems(sampleItems),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+            confidenceThreshold: 0.7,
+          },
+        ],
+      },
+      telemetry: { enabled: true, format: "json" },
+      logSink: (e) => events.push(e as unknown as Record<string, unknown>),
+      triageProvider: mockProvider(classifyFn),
+    });
+
+    await pipeline.run();
+    const metrics = pipeline.getMetrics();
+
+    const callEvents = events.filter((e) => e.granularity === "call");
+    const stageEvents = events.filter((e) => e.granularity === "stage");
+
+    // One costed "call" event per classified item — not a stage rollup
+    // charged again on top.
+    expect(callEvents).toHaveLength(sampleItems.length);
+    for (const e of callEvents) {
+      expect(e.costEstimate as number).toBeGreaterThan(0);
+    }
+
+    // Every stage-level event (the "gather" rollup and the "classify"
+    // rollup) is cost-free — no sentinel non-zero value either.
+    expect(stageEvents.length).toBeGreaterThan(0);
+    for (const e of stageEvents) {
+      expect(e.costEstimate).toBe(0);
+    }
+
+    // Metrics count classified items, not items + stage events.
+    expect(metrics.totalProcessed).toBe(sampleItems.length);
+  });
+
+  it("falls back to DEFAULT_COST_ESTIMATE with costBasis \"estimated\" and a visible reason when provider usage is missing (AC4)", async () => {
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+      // No tokenUsage — forces the flat DEFAULT_COST_ESTIMATE fallback.
+    });
+    const events: Array<Record<string, unknown>> = [];
+
+    const pipeline = new Pipeline({
+      name: "default-cost-estimate",
+      config: {
+        stages: [
+          scriptStageForItems(sampleItems),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+            confidenceThreshold: 0.7,
+          },
+        ],
+      },
+      telemetry: { enabled: true, format: "json" },
+      logSink: (e) => events.push(e as unknown as Record<string, unknown>),
+      triageProvider: mockProvider(classifyFn),
+    });
+
+    await pipeline.run();
+
+    const callEvents = events.filter((e) => e.granularity === "call");
+    expect(callEvents).toHaveLength(sampleItems.length);
+    for (const e of callEvents) {
+      expect(e.costBasis).toBe("estimated");
+      expect(
+        (e.metadata as Record<string, unknown> | undefined)?.reason,
+      ).toBe("default-cost-estimate");
+      // Never a silent default: the cost is still visible on the event.
+      expect(e.costEstimate as number).toBeGreaterThan(0);
+    }
+  });
+
+  it("re-runs audit probe P2: storage-recorded spend matches PipelineResult.costEstimate at ratio 1.00 (AC6)", async () => {
+    // Discharges "probes.mjs P2" from the operator-local audit corpus as a
+    // test — that corpus lives outside this container. The audit observed
+    // a 2.00 ratio (storage double the real PipelineResult.costEstimate);
+    // this re-run proves the fix brings it to 1.00.
+    const storageEvents: Array<{ costEstimate: number }> = [];
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn((event) => {
+        storageEvents.push(event as unknown as { costEstimate: number });
+      }),
+      getSpendSince: vi.fn().mockResolvedValue(0),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+      tokenUsage: { input: 100, output: 20 },
+    });
+
+    const pipeline = new Pipeline({
+      name: "probe-p2",
+      config: {
+        stages: [
+          scriptStageForItems(sampleItems),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+            confidenceThreshold: 0.7,
+          },
+        ],
+      },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 10, alerts: [], retentionDays: 30 },
+    });
+
+    const result = await pipeline.run();
+    // Let the fire-and-forget record() calls settle (same pattern as
+    // test/budget.test.ts's prune-microtask wait).
+    await new Promise((r) => setTimeout(r, 0));
+
+    const storageSpend = storageEvents.reduce(
+      (sum, e) => sum + e.costEstimate,
+      0,
+    );
+    const ratio = storageSpend / result.costEstimate;
+
+    expect(result.costEstimate).toBeGreaterThan(0);
+    expect(ratio).toBeCloseTo(1.0, 6);
+  });
+});
