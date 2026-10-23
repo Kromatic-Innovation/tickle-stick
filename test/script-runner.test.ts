@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { tmpdir } from "node:os";
 import { runScript, runPipedScript } from "../src/script-runner.js";
 
 describe("runScript", () => {
@@ -63,7 +64,7 @@ describe("runScript", () => {
     );
 
     expect(items).toHaveLength(1);
-    expect(items[0].id).toBe("item-0");
+    expect(items[0].id).toMatch(/^[0-9a-f]{8}-item-0$/);
     expect(items[0].source).toBe("unknown");
     expect(items[0].type).toBe("unknown");
     expect(items[0].summary).toBe("Just a summary");
@@ -126,6 +127,82 @@ describe("runScript", () => {
       threadId: "t123",
       labels: ["inbox"],
     });
+  });
+
+  it("assigns unique default ids across two separate script invocations (audit F19)", async () => {
+    const a = await runScript(
+      "node",
+      [
+        "-e",
+        'process.stdout.write(JSON.stringify([{summary:"A1"},{summary:"A2"}]))',
+      ],
+      5000,
+    );
+    const b = await runScript(
+      "node",
+      [
+        "-e",
+        'process.stdout.write(JSON.stringify([{summary:"B1"},{summary:"B2"}]))',
+      ],
+      5000,
+    );
+
+    const ids = [...a, ...b].map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("default ids from the same script invocation are deterministic across runs", async () => {
+    const run = () =>
+      runScript(
+        "node",
+        [
+          "-e",
+          'process.stdout.write(JSON.stringify([{summary:"A1"},{summary:"A2"}]))',
+        ],
+        5000,
+      );
+
+    const first = await run();
+    const second = await run();
+    expect(second.map((i) => i.id)).toEqual(first.map((i) => i.id));
+  });
+
+  it("keeps an explicit id unchanged even when a sibling item in the same batch gets a default id", async () => {
+    const data = JSON.stringify([
+      { id: "explicit-1", summary: "has id" },
+      { summary: "no id" },
+    ]);
+    const items = await runScript(
+      "node",
+      ["-e", `process.stdout.write(${JSON.stringify(data)})`],
+      5000,
+    );
+
+    expect(items[0].id).toBe("explicit-1");
+    expect(items[1].id).not.toBe("explicit-1");
+    expect(items[1].id).toMatch(/-item-1$/);
+  });
+
+  it("the same command and args in different cwds get different default-id prefixes (Seer finding on tickle-stick#245)", async () => {
+    const sameArgs = [
+      "-e",
+      'process.stdout.write(JSON.stringify([{summary:"same script, different cwd"}]))',
+    ];
+    const inProjectDir = await runScript("node", sameArgs, 5000, process.cwd());
+    const inTmpDir = await runScript("node", sameArgs, 5000, tmpdir());
+
+    expect(inProjectDir[0].id).not.toBe(inTmpDir[0].id);
+  });
+
+  it("the same command, args, and cwd still get the same default-id prefix", async () => {
+    const sameArgs = [
+      "-e",
+      'process.stdout.write(JSON.stringify([{summary:"same everything"}]))',
+    ];
+    const first = await runScript("node", sameArgs, 5000, process.cwd());
+    const second = await runScript("node", sameArgs, 5000, process.cwd());
+
+    expect(first[0].id).toBe(second[0].id);
   });
 });
 
