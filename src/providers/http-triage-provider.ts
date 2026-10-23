@@ -47,17 +47,47 @@ export class HttpTriageProvider implements TriageProvider {
     text: string,
     systemPrompt: string,
   ): Promise<ClassificationResult> {
+    // Captured as soon as a response body exists, before anything that can
+    // throw (extractText() throws on a max_tokens truncation with no text
+    // block, tickle-stick#238) — a truncation still burns real tokens, so
+    // the catch below can charge for them instead of silently costing zero
+    // (Seer finding on tickle-stick#239: throwing from extractText bypassed
+    // extractTokenUsage entirely). A failure with no body at all (404,
+    // network error, abort) never reaches this line and stays zero-cost.
+    let tokenUsage: { input: number; output: number } | undefined;
     try {
-      const body = await this.fetchModelBody(text, systemPrompt);
-      if (!body) return { classification: "needs-reasoning", confidence: 0 };
+      const { body, failureReason } = await this.fetchModelBody(
+        text,
+        systemPrompt,
+      );
+      if (!body) {
+        return {
+          classification: "needs-reasoning",
+          confidence: 0,
+          failureReason: failureReason ?? "empty response body",
+        };
+      }
+      tokenUsage = this.extractTokenUsage(body);
       const responseText = this.extractText(body);
       const decision = parseClassificationResponse(responseText);
-      decision.tokenUsage = this.extractTokenUsage(body);
+      decision.tokenUsage = tokenUsage;
       decision.provider = this.options.provider;
       decision.model = this.options.model;
       return decision;
-    } catch {
-      return { classification: "needs-reasoning", confidence: 0 };
+    } catch (err) {
+      // Covers thrown network/abort errors and the max_tokens truncation
+      // thrown by extractText() (tickle-stick#238) — both degrade to the
+      // needs-reasoning sentinel but now carry the reason via failureReason
+      // so the stage router can surface onError/errored instead of silently
+      // swallowing the failure (tickle-stick#239). tokenUsage is attached
+      // when a body was actually received and carried a usage block, so
+      // tier1-triage charges the real measured tokens instead of zero.
+      return {
+        classification: "needs-reasoning",
+        confidence: 0,
+        failureReason: err instanceof Error ? err.message : String(err),
+        tokenUsage,
+      };
     }
   }
 
@@ -75,7 +105,7 @@ export class HttpTriageProvider implements TriageProvider {
    * timeout from an empty response.
    */
   async classifyRaw(text: string, systemPrompt: string): Promise<string> {
-    const body = await this.fetchModelBody(text, systemPrompt, {
+    const { body } = await this.fetchModelBody(text, systemPrompt, {
       throwOnError: true,
     });
     if (!body) return "";
@@ -86,7 +116,7 @@ export class HttpTriageProvider implements TriageProvider {
     text: string,
     systemPrompt: string,
     opts: { throwOnError?: boolean } = {},
-  ): Promise<Record<string, unknown> | null> {
+  ): Promise<{ body: Record<string, unknown> | null; failureReason?: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeout);
     try {
@@ -102,9 +132,12 @@ export class HttpTriageProvider implements TriageProvider {
             `${this.options.provider} API ${response.status}: ${errBody.slice(0, 200)}`,
           );
         }
-        return null;
+        return {
+          body: null,
+          failureReason: `${this.options.provider} API ${response.status}`,
+        };
       }
-      return (await response.json()) as Record<string, unknown>;
+      return { body: (await response.json()) as Record<string, unknown> };
     } finally {
       clearTimeout(timer);
     }

@@ -21,6 +21,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `needs-reasoning`/confidence-0 sentinel behaviour is unchanged (the
   dedicated error/failed-field failure channel for `classify()` is added by
   the companion issue #239). (#238, semver-minor)
+- **`HttpTriageProvider.classify()` no longer swallows failures into total
+  silence** — every failure path (non-OK HTTP, thrown network/abort error,
+  missing response body, and the `max_tokens`-truncation throw added by
+  #238) now sets a new optional `failureReason` string on the returned
+  `ClassificationResult`. The `needs-reasoning`/confidence-0 sentinel is
+  unchanged (ruling D1 option B); `classify()` still never throws. The
+  cheap-model stage router now checks `failureReason`: it calls `onError`
+  once per failed item and marks `StageResult.errored = true` for the
+  stage, and the cost calculator charges zero cost instead of falling back
+  to `DEFAULT_COST_ESTIMATE` for a result that carries it. A `max_tokens`
+  truncation is the one failure that still burned real tokens: `classify()`
+  now reads the response's usage block before the truncation throw can
+  fire, so a truncated-but-billed call is charged the measured tokens
+  instead of zero, while a failure with no response body at all (404,
+  network error, abort) still has no usage and stays zero-cost. Additive
+  and non-breaking. (#239, semver-minor)
 
 ## [0.6.7] — 2026-10-23
 

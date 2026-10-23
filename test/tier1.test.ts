@@ -191,6 +191,38 @@ describe("Tier 1: Classification", () => {
     expect(costEstimate).toBe(0.005);
   });
 
+  it("charges zero cost (not DEFAULT_COST_ESTIMATE) when the result carries failureReason (tickle-stick#239)", async () => {
+    const provider = mockProvider({
+      classification: "needs-reasoning",
+      confidence: 0,
+      failureReason: "openai API 404",
+    });
+    const { costEstimate, failureReason } = await classifyItem(
+      makeItem("test"),
+      stageConfig,
+      provider,
+    );
+
+    expect(costEstimate).toBe(0);
+    expect(failureReason).toBe("openai API 404");
+  });
+
+  it("still charges from tokenUsage when both tokenUsage and failureReason are present (tickle-stick#239)", async () => {
+    const provider = mockProvider({
+      classification: "needs-reasoning",
+      confidence: 0,
+      failureReason: "openai API 404",
+      tokenUsage: { input: 100, output: 50 },
+    });
+    const { costEstimate } = await classifyItem(
+      makeItem("test"),
+      stageConfig,
+      provider,
+    );
+
+    expect(costEstimate).toBeGreaterThan(0);
+  });
+
   it("returns tokensIn / tokensOut / provider / model from the provider result", async () => {
     const provider: TriageProvider = {
       name: "mock",
