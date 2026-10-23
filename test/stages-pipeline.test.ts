@@ -3,7 +3,12 @@ import { Pipeline } from "../src/pipeline.js";
 import { runScript } from "../src/script-runner.js";
 import { applyInputFilter, type PipelineContext } from "../src/pipeline/context.js";
 import type { StageConfig } from "../src/config/schema.js";
-import type { WorkItem, TriageProvider, ClassifiedItem } from "../src/types.js";
+import type {
+  WorkItem,
+  TriageProvider,
+  ClassifiedItem,
+  StorageAdapter,
+} from "../src/types.js";
 
 const sampleItems: WorkItem[] = [
   {
@@ -633,5 +638,485 @@ describe("Default item id collisions across id-less gather stages (audit F19)", 
     // And no two gathered items should actually share a default id.
     const ids = gathered.map((i) => i.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("Budget cap re-evaluation at the pipeline level (tickle-stick#240)", () => {
+  function classifyStage(): StageConfig {
+    return {
+      name: "classify",
+      type: "model",
+      provider: "cheap",
+      systemPrompt: "Classify",
+      confidenceThreshold: 0.7,
+    };
+  }
+
+  it("gates the first run of a fresh Pipeline whose storage already shows spend over the cap (AC1/AC4)", async () => {
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      // Storage already reports spend over the cap before this Pipeline
+      // instance has ever recorded a costed event itself.
+      getSpendSince: vi.fn().mockResolvedValue(5),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+    });
+
+    const pipeline = new Pipeline({
+      name: "fresh-over-cap",
+      config: { stages: [scriptStageForItems(sampleItems), classifyStage()] },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+    });
+
+    const result = await pipeline.run();
+    const classifyResult = result.stageResults[1];
+
+    expect(classifyResult.items).toHaveLength(0);
+    expect(classifyFn).not.toHaveBeenCalled();
+  });
+
+  it("clears the cap latch on a later run once window spend drops, with no costed event on this instance in between (AC2/AC4)", async () => {
+    const events: { timestamp: string; costEstimate: number }[] = [];
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn((event) => {
+        events.push(event as { timestamp: string; costEstimate: number });
+      }),
+      getSpendSince: vi.fn((since: string) =>
+        events
+          .filter((e) => e.timestamp >= since)
+          .reduce((sum, e) => sum + e.costEstimate, 0),
+      ),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+    });
+
+    // 3 sample items at the $0.001 default cost estimate; cap trips partway
+    // through the first run.
+    const pipeline = new Pipeline({
+      name: "long-lived",
+      config: { stages: [scriptStageForItems(sampleItems), classifyStage()] },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 0.002, alerts: [], retentionDays: 30 },
+    });
+
+    await pipeline.run();
+    // Let the fire-and-forget record() from the final item's emit settle
+    // (same pattern as test/budget.test.ts's prune-microtask wait).
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pipeline.isBudgetExceeded()).toBe(true);
+
+    // Window spend drops back to 0 (e.g. day rollover) without this
+    // Pipeline instance recording any further costed event.
+    events.length = 0;
+    classifyFn.mockClear();
+
+    const run2 = await pipeline.run();
+    const classifyResult = run2.stageResults[1];
+
+    expect(classifyResult.items.length).toBeGreaterThan(0);
+    expect(classifyFn).toHaveBeenCalled();
+  });
+
+  it("bounds a cheap-tier stage's overshoot to the recheck cadence instead of its whole item count (AC3)", async () => {
+    const items: WorkItem[] = Array.from({ length: 25 }, (_, i) => ({
+      id: `item-${i}`,
+      source: "gmail",
+      type: "email",
+      summary: `Message ${i}`,
+      timestamp: new Date(),
+    }));
+
+    let externalSpend = 0;
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      getSpendSince: vi.fn(() => externalSpend),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+
+    let calls = 0;
+    const classifyFn = vi.fn().mockImplementation(async () => {
+      calls += 1;
+      // Simulate a sibling process/stage spending the budget mid-batch,
+      // without going through this Pipeline's own record() path — the
+      // per-item cached read can only catch this on the bounded refresh
+      // cadence, not immediately.
+      if (calls === 13) externalSpend = 2;
+      return { classification: "routine", confidence: 0.95 };
+    });
+
+    const pipeline = new Pipeline({
+      name: "bounded-overshoot",
+      config: { stages: [scriptStageForItems(items), classifyStage()] },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+    });
+
+    const result = await pipeline.run();
+    const classifyResult = result.stageResults[1];
+
+    // Bounded by the recheck cadence, not by the stage's whole 25-item
+    // input: the loop must stop well short of processing every item.
+    expect(classifyResult.items.length).toBeLessThan(items.length);
+    expect(classifyResult.items.length).toBeLessThanOrEqual(20);
+  });
+
+  it("tolerates a throwing storage adapter at refresh() time: run() still resolves and reports via onError (Seer finding 1)", async () => {
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      getSpendSince: vi.fn().mockRejectedValue(new Error("storage is down")),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const onError = vi.fn();
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+    });
+
+    const pipeline = new Pipeline({
+      name: "throwing-storage",
+      config: { stages: [scriptStageForItems(sampleItems), classifyStage()] },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    // The failing refresh() at the top of run() must not reject run()
+    // itself -- it must be reported and tolerated, same contract as any
+    // other storage/hook failure in this class.
+    const result = await pipeline.run();
+
+    expect(result.totalItems).toBe(sampleItems.length);
+    expect(onError).toHaveBeenCalledWith(
+      "budget-record",
+      expect.any(Error),
+      "post-hook",
+    );
+  });
+
+  it("does not discard already-classified items when a periodic refresh() throws mid-loop (Seer finding 1)", async () => {
+    const items: WorkItem[] = Array.from({ length: 25 }, (_, i) => ({
+      id: `item-${i}`,
+      source: "gmail",
+      type: "email",
+      summary: `Message ${i}`,
+      timestamp: new Date(),
+    }));
+
+    let calls = 0;
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      getSpendSince: vi.fn(() => {
+        calls += 1;
+        // Calls 1-2 are Pipeline.run()'s start-of-run refresh (day +
+        // week) and must succeed so the stage is allowed to start.
+        // Every call after that is the cheap-tier loop's own periodic
+        // refresh, which this test makes fail every time it runs, to
+        // prove that failure is bookkeeping-only.
+        if (calls <= 2) return 0;
+        throw new Error("storage is down");
+      }),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+
+    const onError = vi.fn();
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+      // Zero token usage -> zero costEstimate -> emit() never calls
+      // budgetManager.record() for these items, so the getSpendSince
+      // call count above stays deterministic (driven only by the
+      // start-of-run refresh and the loop's own periodic refresh).
+      tokenUsage: { input: 0, output: 0 },
+    });
+
+    const pipeline = new Pipeline({
+      name: "refresh-throws-mid-loop",
+      config: { stages: [scriptStageForItems(items), classifyStage()] },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    const result = await pipeline.run();
+    const classifyResult = result.stageResults[1];
+
+    // Every item is still classified: a refresh() throw mid-loop must not
+    // abort the stage body and discard the items already classified
+    // before (or after) it -- context.classified.push() still runs.
+    expect(classifyResult.items).toHaveLength(items.length);
+    expect(classifyFn).toHaveBeenCalledTimes(items.length);
+    expect(onError).toHaveBeenCalledWith(
+      "classify",
+      expect.any(Error),
+      "stage",
+    );
+  });
+});
+
+describe("Budget-cap model-stage skip (tickle-stick#241, operator ruling D2)", () => {
+  // Discharges AC4/AC5 ("probe P3 re-run") as tests — the operator-local
+  // audit corpus referenced by the issue is unreachable from this
+  // container. This reproduces the same shape: a cheap "classify" stage
+  // and an expensive "reason" stage both run while the budget cap is
+  // already tripped, followed by a callback stage with `input: "all"`.
+  it("skips every model stage, keeps items in context for the input:\"all\" callback, emits a budget-reason telemetry event, and calls onError once per skipped stage", async () => {
+    const twoItems = sampleItems.slice(0, 2);
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      // Storage already reports spend over the cap before this Pipeline
+      // instance has ever recorded a costed event itself (same pattern as
+      // the tickle-stick#240 "fresh Pipeline over cap" test above).
+      getSpendSince: vi.fn().mockResolvedValue(5),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const classifyFn = vi
+      .fn()
+      .mockResolvedValue({ classification: "routine", confidence: 0.95 });
+    const stageCallbacks = {
+      reason: vi.fn().mockResolvedValue("should not run"),
+      deliver: vi.fn().mockResolvedValue("delivered"),
+    };
+    const onError = vi.fn();
+    const events: Array<Record<string, unknown>> = [];
+
+    const pipeline = new Pipeline({
+      name: "budget-skip",
+      config: {
+        stages: [
+          scriptStageForItems(twoItems),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+          },
+          {
+            name: "reason",
+            type: "model",
+            provider: "expensive",
+            prompt: "Reason: {{items}}",
+          },
+          {
+            name: "deliver",
+            type: "callback",
+            input: "all",
+          },
+        ],
+      },
+      telemetry: { enabled: true, format: "json" },
+      logSink: (e) => events.push(e as unknown as Record<string, unknown>),
+      triageProvider: mockProvider(classifyFn),
+      stageCallbacks,
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    const result = await pipeline.run();
+
+    // Both model stages are skipped entirely — the cheap classifier never
+    // runs and the expensive callback never fires.
+    expect(classifyFn).not.toHaveBeenCalled();
+    expect(stageCallbacks.reason).not.toHaveBeenCalled();
+    const classifyResult = result.stageResults.find(
+      (s) => s.name === "classify",
+    );
+    const reasonResult = result.stageResults.find((s) => s.name === "reason");
+    expect(classifyResult?.items).toHaveLength(0);
+    expect(classifyResult?.errored).toBe(true);
+    expect(reasonResult?.errored).toBe(true);
+
+    // The callback stage with input: "all" still receives both items — they
+    // were never removed from context, only never classified.
+    expect(stageCallbacks.deliver).toHaveBeenCalledOnce();
+    const [deliverItems] = stageCallbacks.deliver.mock.calls[0];
+    expect(deliverItems).toHaveLength(2);
+
+    // A budget-reason telemetry event fires once per skipped model stage.
+    const budgetEvents = events.filter(
+      (e) =>
+        (e.metadata as Record<string, unknown> | undefined)?.reason ===
+        "budget",
+    );
+    expect(budgetEvents).toHaveLength(2);
+    expect(
+      budgetEvents.map((e) => (e.metadata as Record<string, unknown>).stage),
+    ).toEqual(["classify", "reason"]);
+
+    // onError fires exactly once per skipped stage.
+    const skipErrorCalls = onError.mock.calls.filter(([stageName]) =>
+      ["classify", "reason"].includes(stageName as string),
+    );
+    expect(skipErrorCalls).toHaveLength(2);
+  });
+
+  // Seer finding on this same issue: the two `break` statements inside
+  // runCheapModel's loop (introduced by tickle-stick#240's per-item cap
+  // re-check) exited mid-batch with no errored/telemetry/onError signal at
+  // all, leaving a half-classified stage indistinguishable from one that
+  // simply had less to do. This reproduces that mid-batch cut and asserts
+  // the stage now reports it once, after retention, with the shape as a
+  // whole-stage skip (same `metadata.reason === "budget"`).
+  it("reports a mid-batch budget cut once, after retention, with classified/skipped counts (Seer finding)", async () => {
+    const items: WorkItem[] = Array.from({ length: 25 }, (_, i) => ({
+      id: `item-${i}`,
+      source: "gmail",
+      type: "email",
+      summary: `Message ${i}`,
+      timestamp: new Date(),
+    }));
+
+    let externalSpend = 0;
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      getSpendSince: vi.fn(() => externalSpend),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+
+    let calls = 0;
+    const classifyFn = vi.fn().mockImplementation(async () => {
+      calls += 1;
+      // Same mid-batch trip shape as the tickle-stick#240 overshoot test:
+      // a sibling process spends the budget after item 13, caught on the
+      // next bounded refresh cadence rather than immediately.
+      if (calls === 13) externalSpend = 2;
+      return { classification: "routine", confidence: 0.95 };
+    });
+
+    const onError = vi.fn();
+    const events: Array<Record<string, unknown>> = [];
+
+    const pipeline = new Pipeline({
+      name: "mid-batch-cut",
+      config: {
+        stages: [
+          scriptStageForItems(items),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+          },
+        ],
+      },
+      telemetry: { enabled: true, format: "json" },
+      logSink: (e) => events.push(e as unknown as Record<string, unknown>),
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    const result = await pipeline.run();
+    const classifyResult = result.stageResults.find(
+      (s) => s.name === "classify",
+    );
+    const classifiedCount = classifyResult?.items.length ?? 0;
+
+    // Items already classified before the cut are retained — nothing
+    // lost from context, same as before this fix.
+    expect(classifiedCount).toBeGreaterThan(0);
+    expect(classifiedCount).toBeLessThan(items.length);
+
+    // The cut is now observable: errored, exactly one budget-reason
+    // event for this stage, and exactly one onError call naming the
+    // classified/skipped counts.
+    expect(classifyResult?.errored).toBe(true);
+
+    const budgetEvents = events.filter(
+      (e) =>
+        (e.metadata as Record<string, unknown> | undefined)?.reason ===
+        "budget",
+    );
+    expect(budgetEvents).toHaveLength(1);
+    const metadata = budgetEvents[0].metadata as Record<string, unknown>;
+    expect(metadata.stage).toBe("classify");
+    expect(metadata.classifiedCount).toBe(classifiedCount);
+    expect(metadata.skippedCount).toBe(items.length - classifiedCount);
+
+    const skipErrorCalls = onError.mock.calls.filter(
+      ([stageName]) => stageName === "classify",
+    );
+    expect(skipErrorCalls).toHaveLength(1);
+    const [, err] = skipErrorCalls[0];
+    expect((err as Error).message).toContain(String(classifiedCount));
+    expect((err as Error).message).toContain(
+      String(items.length - classifiedCount),
+    );
+  });
+
+  // Negative control: a stage that completes its whole batch comfortably
+  // under budget must emit none of the new budget signal — proving the
+  // mid-batch reporting above is conditional on an actual cut, not fired
+  // unconditionally after every cheap-model stage.
+  it("emits no budget signal for a stage that completes its whole batch under budget", async () => {
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      getSpendSince: vi.fn().mockResolvedValue(0),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const classifyFn = vi
+      .fn()
+      .mockResolvedValue({ classification: "routine", confidence: 0.95 });
+    const onError = vi.fn();
+    const events: Array<Record<string, unknown>> = [];
+
+    const pipeline = new Pipeline({
+      name: "under-budget",
+      config: {
+        stages: [
+          scriptStageForItems(sampleItems),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+          },
+        ],
+      },
+      telemetry: { enabled: true, format: "json" },
+      logSink: (e) => events.push(e as unknown as Record<string, unknown>),
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1000, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    const result = await pipeline.run();
+    const classifyResult = result.stageResults.find(
+      (s) => s.name === "classify",
+    );
+
+    expect(classifyResult?.items).toHaveLength(sampleItems.length);
+    expect(classifyResult?.errored).toBeFalsy();
+
+    const budgetEvents = events.filter(
+      (e) =>
+        (e.metadata as Record<string, unknown> | undefined)?.reason ===
+        "budget",
+    );
+    expect(budgetEvents).toHaveLength(0);
+
+    const classifyErrorCalls = onError.mock.calls.filter(
+      ([stageName]) => stageName === "classify",
+    );
+    expect(classifyErrorCalls).toHaveLength(0);
   });
 });

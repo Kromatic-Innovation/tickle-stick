@@ -37,6 +37,14 @@ export interface StageRouterOptions {
  * concerns. See `pre-1.0` plan in tickle-stick#34 for the rationale.
  */
 export class StageRouter {
+  /**
+   * Cadence (in items) for re-checking the budget cap against storage
+   * inside the cheap-tier loop. Bounds a single stage's overshoot to this
+   * many items instead of its whole item count, without hitting storage
+   * once per item (tickle-stick#240).
+   */
+  private static readonly BUDGET_RECHECK_INTERVAL = 10;
+
   private readonly pipelineName: string;
   private readonly provider: TriageProvider | null;
   private readonly stageCallbacks: ExpensiveStageProvider;
@@ -181,11 +189,67 @@ export class StageRouter {
     const inputItems = applyInputFilter(stage.input, context);
     if (inputItems.length === 0) return;
 
+    // Budget-exceeded is a RUNTIME skip (tickle-stick#241, operator ruling
+    // D2) — distinct from the missing-provider/missing-systemPrompt case,
+    // which is now a config error that fails fast at Pipeline construction
+    // (see pipeline.ts). Every model stage, cheap or expensive, is skipped
+    // while the cap is tripped. Skipped items are never written into
+    // `context` here (they were already there, or weren't — this stage
+    // simply doesn't touch it), so a downstream callback stage with
+    // `input: "all"` still sees them.
+    if (this.budgetManager?.isBudgetExceeded()) {
+      this.skipModelStageForBudget(stage, result);
+      return;
+    }
+
     if (stage.provider === "cheap") {
       await this.runCheapModel(stage, inputItems, context, result);
     } else {
       await this.runExpensiveModel(stage, inputItems, context, result);
     }
+  }
+
+  /**
+   * Shared budget-signal reporter: one telemetry event naming `"budget"`
+   * as the reason plus one `onError` call, used by both the whole-stage
+   * skip ({@link skipModelStageForBudget}) and the mid-batch cut-short
+   * case in {@link runCheapModel}, so a consumer sees one consistent
+   * "budget" signal shape regardless of which one happened
+   * (tickle-stick#241, Seer finding on the mid-batch gap).
+   */
+  private reportBudgetSignal(
+    stage: StageConfig,
+    result: StageResult,
+    opts: { action: string; message: string; metadata?: Record<string, unknown> },
+  ): void {
+    result.errored = true;
+    this.emit({
+      pipeline: this.pipelineName,
+      tier: stage.provider === "cheap" ? 1 : 2,
+      action: opts.action,
+      latencyMs: 0,
+      costEstimate: 0,
+      metadata: { reason: "budget", stage: stage.name, ...opts.metadata },
+    });
+    this.onError?.(stage.name, new Error(opts.message), "stage");
+  }
+
+  /**
+   * Skip an entire model stage because the budget cap is already tripped
+   * before the stage starts. Emits a telemetry event naming the budget as
+   * the skip reason and calls `onError` once for the stage
+   * (tickle-stick#241, operator ruling D2, AC1). This is a new, additive
+   * emit call — distinct from the per-item emit inside
+   * {@link runCheapModel} — so it doesn't collide with that event's shape.
+   */
+  private skipModelStageForBudget(
+    stage: StageConfig,
+    result: StageResult,
+  ): void {
+    this.reportBudgetSignal(stage, result, {
+      action: "skipped",
+      message: `model stage "${stage.name}" skipped: budget cap exceeded`,
+    });
   }
 
   private async runCheapModel(
@@ -194,11 +258,54 @@ export class StageRouter {
     context: PipelineContext,
     result: StageResult,
   ): Promise<void> {
-    const budgetOk = !this.budgetManager?.isBudgetExceeded();
-    if (!this.provider || !budgetOk || !stage.systemPrompt) return;
+    // Defensive only: Pipeline's constructor validates that every
+    // provider: "cheap" model stage has both a systemPrompt and a
+    // triageProvider before the stage loop ever runs (tickle-stick#241).
+    // This guard exists purely to satisfy the nullable `this.provider`
+    // type for a StageRouter constructed directly, bypassing Pipeline.
+    if (!this.provider || !stage.systemPrompt) return;
 
     const classified: ClassifiedItem[] = [];
-    for (const item of inputItems) {
+    // Set at either break site below when the budget cap cuts this batch
+    // short mid-loop, so it can be reported once after the loop instead of
+    // per remaining item (tickle-stick#241, Seer finding: these breaks
+    // previously exited with no errored/telemetry/onError signal at all).
+    let budgetCutShort = false;
+    for (let i = 0; i < inputItems.length; i++) {
+      // Per-item (cached, cheap) cap re-check: stop as soon as a prior
+      // iteration's costed event tripped the cap, instead of running the
+      // whole remaining batch at the stage's whole item count
+      // (tickle-stick#240, AC3).
+      if (this.budgetManager?.isBudgetExceeded()) {
+        budgetCutShort = true;
+        break;
+      }
+
+      // On a bounded cadence, refresh the cached flag against storage so
+      // a cap trip that hasn't produced a costed event yet (e.g. another
+      // stage or process spent the budget) is still caught within this
+      // loop, without a storage hit on every single item.
+      if (
+        this.budgetManager &&
+        i > 0 &&
+        i % StageRouter.BUDGET_RECHECK_INTERVAL === 0
+      ) {
+        try {
+          await this.budgetManager.refresh();
+        } catch (err) {
+          // A refresh failure here is bookkeeping-only; it must not abort
+          // the loop and discard items already classified in this stage
+          // (tickle-stick#240, Finding 1). Report it and fall through on
+          // the last cached isBudgetExceeded() value below.
+          this.onError?.(stage.name, err, "stage");
+        }
+        if (this.budgetManager.isBudgetExceeded()) {
+          budgetCutShort = true;
+          break;
+        }
+      }
+
+      const item = inputItems[i];
       try {
         const {
           classified: ci,
@@ -254,6 +361,23 @@ export class StageRouter {
 
     context.classified.push(...classified);
     result.items = classified;
+
+    // Report the mid-batch cut once, after retention above so the signal
+    // never races the items it describes (tickle-stick#241, Seer finding).
+    // Items already classified (including needs-reasoning fallbacks from
+    // the catch above) stay retained; this only makes the cut itself
+    // observable, mirroring the whole-stage-skip signal in
+    // skipModelStageForBudget.
+    if (budgetCutShort) {
+      const skippedCount = inputItems.length - classified.length;
+      this.reportBudgetSignal(stage, result, {
+        action: "partial",
+        message:
+          `model stage "${stage.name}" cut short by budget cap: ` +
+          `classified ${classified.length} item(s), skipped ${skippedCount} remaining`,
+        metadata: { classifiedCount: classified.length, skippedCount },
+      });
+    }
   }
 
   private async runExpensiveModel(

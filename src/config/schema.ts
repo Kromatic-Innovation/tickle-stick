@@ -26,29 +26,57 @@ const postHookSchema = z.object({
   timeout: z.number().positive().default(15000),
 });
 
-const stageSchema = z.object({
-  name: z.string(),
-  type: z.enum(["script", "model", "callback"]),
-  // script fields
-  command: z.string().optional(),
-  args: z.array(z.string()).default([]),
-  timeout: z.number().positive().default(30000),
-  cwd: z.string().optional(),
-  // model fields
-  provider: z.enum(["cheap", "expensive"]).optional(),
-  systemPrompt: z.string().optional(),
-  prompt: z.string().optional(),
-  confidenceThreshold: z.number().min(0).max(1).optional(),
-  // pricing — defaults match Haiku 3.5 / 4o-mini input/output rates
-  costPerInputToken: z.number().nonnegative().optional(),
-  costPerOutputToken: z.number().nonnegative().optional(),
-  /** Cost charged per classification when the provider does not return tokenUsage. */
-  defaultCostEstimate: z.number().nonnegative().optional(),
-  // filtering
-  input: inputFilterSchema.optional(),
-  // post-hook
-  postHook: postHookSchema.optional(),
-});
+const stageSchema = z
+  .object({
+    name: z.string(),
+    type: z.enum(["script", "model", "callback"]),
+    // script fields
+    command: z.string().optional(),
+    args: z.array(z.string()).default([]),
+    timeout: z.number().positive().default(30000),
+    cwd: z.string().optional(),
+    // model fields
+    provider: z.enum(["cheap", "expensive"]).optional(),
+    systemPrompt: z.string().optional(),
+    prompt: z.string().optional(),
+    confidenceThreshold: z.number().min(0).max(1).optional(),
+    // pricing — defaults match Haiku 3.5 / 4o-mini input/output rates
+    costPerInputToken: z.number().nonnegative().optional(),
+    costPerOutputToken: z.number().nonnegative().optional(),
+    /** Cost charged per classification when the provider does not return tokenUsage. */
+    defaultCostEstimate: z.number().nonnegative().optional(),
+    // filtering
+    input: inputFilterSchema.optional(),
+    // post-hook
+    postHook: postHookSchema.optional(),
+  })
+  // Unknown keys (e.g. a misspelled `systemprompt` or `confidenceThreshhold`)
+  // must be rejected at load time rather than silently stripped — a typo'd
+  // key previously disabled a stage with no error (tickle-stick#243).
+  .strict()
+  .superRefine((stage, ctx) => {
+    // `=== undefined` (not falsy) deliberately: an env-var interpolation
+    // that resolves to an empty string is a separate, already-warned-on
+    // misconfiguration (loader.ts `interpolateEnvVars`), not a missing key.
+    if (stage.type === "script" && stage.command === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Stage "${stage.name}": type "script" requires a "command"`,
+        path: ["command"],
+      });
+    }
+    if (
+      stage.type === "model" &&
+      stage.provider === "cheap" &&
+      stage.systemPrompt === undefined
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Stage "${stage.name}": type "model" with provider "cheap" requires a "systemPrompt"`,
+        path: ["systemPrompt"],
+      });
+    }
+  });
 
 export const scheduleSchema = z
   .object({
@@ -72,8 +100,16 @@ const telemetrySchema = z.object({
   format: z.enum(["json", "text"]).default("json"),
 });
 
+// A bare number, a percentage string ("80%"), or a plain decimal amount
+// string ("0.5"). Anything else (e.g. "eighty%") previously parsed to NaN
+// at runtime and silently never fired (tickle-stick#243).
+const alertAtStringSchema = z.string().regex(/^\d+(\.\d+)?%?$/, {
+  message:
+    'BudgetAlertConfig.at string must be a percentage (e.g. "80%") or a plain decimal amount (e.g. "0.5")',
+});
+
 const budgetAlertSchema = z.object({
-  at: z.union([z.string(), z.number()]),
+  at: z.union([z.number(), alertAtStringSchema]),
 });
 
 const budgetSchema = z.object({

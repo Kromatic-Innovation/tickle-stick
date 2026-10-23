@@ -37,6 +37,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of zero, while a failure with no response body at all (404,
   network error, abort) still has no usage and stays zero-cost. Additive
   and non-breaking. (#239, semver-minor)
+- **Skipping the cheap tier no longer drops items for `classified:*` stages
+  silently** — a budget-cap trip now skips every model stage (cheap and
+  expensive) explicitly: skipped items stay in `context` untouched (a
+  downstream callback stage with `input: "all"` still sees them), a
+  telemetry event names the budget as the skip reason, and `onError`
+  fires once per skipped stage. Previously this was a bare, unobserved
+  `return` in `StageRouter`. **Breaking:** a `model` stage with
+  `provider: "cheap"` and no `systemPrompt`, or a pipeline containing such
+  a stage but no `triageProvider`, now throws at `new Pipeline(...)`
+  instead of silently skipping at runtime — this ties to the
+  strict-schema validation in #243 but is enforced here at construction
+  time regardless. The README's budget pass-through sentence is rewritten
+  to match. A cheap-model stage that's already mid-batch when the cap
+  trips now reports the cut the same way instead of silently exiting the
+  loop: items already classified are still retained, but one telemetry
+  event (naming `"budget"` as the reason, with classified/skipped counts)
+  and one `onError` call now fire for the stage. (#241, semver-minor)
+- **Stage config typos and non-numeric budget `at` strings now fail at
+  config load instead of silently no-oping.** `src/config/schema.ts`'s stage
+  schema previously stripped unknown keys silently, so a misspelled
+  `systemprompt:` or `confidenceThreshhold:` dropped the field with no error
+  and the stage went quietly inert; a cheap-model stage with no
+  `systemPrompt` or a script stage with no `command` behaved the same way.
+  Budget alert `at` strings (e.g. `"eighty%"`) parsed to `NaN` and the alert
+  never fired. All four now throw a config-load error naming the bad key or
+  value. (tickle-stick#243)
+
+  **⚠️ BREAKING for configs carrying extra/misspelled stage keys.** Stage
+  definitions are now validated with `.strict()` — any key not in the
+  documented stage schema (including a previously-silently-stripped typo)
+  now fails config load instead of being dropped. If your config loaded
+  successfully before and relied on an extra key being ignored, it will now
+  throw; remove or correct the key. This repo's own demo config
+  (`config/tickle-stick.yaml`) and every full config example in `README.md`
+  were re-verified against the stricter schema and still load unchanged.
+  Construction-time guards for missing provider/systemPrompt wiring in
+  `src/pipeline.ts` / `src/pipeline/stage-router.ts` are a separate,
+  complementary check (tickle-stick#241) — this change is config-load-time
+  only.
 
 ## [0.6.7] — 2026-10-23
 

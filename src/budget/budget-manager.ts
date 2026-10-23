@@ -105,6 +105,19 @@ export class BudgetManager {
     return this.exceeded;
   }
 
+  /**
+   * Re-evaluate budget state against storage without recording a costed
+   * event. `checkBudget()` below is otherwise only reachable via `record()`,
+   * which the budget-gated skip path starves of costed events once the cap
+   * trips (tickle-stick#240) — so a latched `exceeded` flag never got a
+   * chance to clear, and a fresh instance never got a chance to see prior
+   * spend. Call this at `Pipeline` start (or first stage use) and on a
+   * bounded cadence from the cheap-tier loop.
+   */
+  async refresh(): Promise<void> {
+    await this.checkBudget();
+  }
+
   /** Query spend and check thresholds. Call after recording events. */
   async checkBudget(): Promise<void> {
     if (!this.storage) return;
@@ -117,7 +130,6 @@ export class BudgetManager {
     if (today !== this.currentDay) {
       this.alertsSent.clear();
       this.currentDay = today;
-      this.exceeded = false;
       this.prune().catch(() => {
         /* best-effort retention enforcement; do not block budget checks */
       });
@@ -129,31 +141,42 @@ export class BudgetManager {
     const dailySpend = await this.storage.getSpendSince(dayStart);
     const weeklySpend = await this.storage.getSpendSince(weekStart);
 
-    // Check caps
-    if (this.config.maxDailySpend && dailySpend >= this.config.maxDailySpend) {
-      this.exceeded = true;
+    // Recomputed fresh from current spend on every call — not sticky-true
+    // -only — so a cap trip clears as soon as window spend drops back under
+    // the limit, whether that's this same window or a rollover into a new
+    // one (tickle-stick#240).
+    const maxDaily = this.config.maxDailySpend;
+    const maxWeekly = this.config.maxWeeklySpend;
+    const dailyCapExceeded = !!maxDaily && dailySpend >= maxDaily;
+    const weeklyCapExceeded = !!maxWeekly && weeklySpend >= maxWeekly;
+
+    // Decide the flag BEFORE any `fireAlert` await below. `fireAlert` can
+    // throw (a throwing `alertSink`), which would otherwise propagate out
+    // of this function before `this.exceeded` is ever assigned, leaving it
+    // stuck at its previous value — a broken alert sink must not be able
+    // to silently disable the cap (tickle-stick#240, Finding 2).
+    this.exceeded = dailyCapExceeded || weeklyCapExceeded;
+
+    // Fire caps
+    if (dailyCapExceeded && maxDaily) {
       await this.fireAlert({
         type: "cap",
         level: "daily",
         currentSpend: dailySpend,
-        limit: this.config.maxDailySpend,
-        percentage: (dailySpend / this.config.maxDailySpend) * 100,
-        message: `Daily triage budget exceeded ($${dailySpend.toFixed(2)}/$${this.config.maxDailySpend.toFixed(2)}). Tier 1 disabled, Tier 0 only.`,
+        limit: maxDaily,
+        percentage: (dailySpend / maxDaily) * 100,
+        message: `Daily triage budget exceeded ($${dailySpend.toFixed(2)}/$${maxDaily.toFixed(2)}). Tier 1 disabled, Tier 0 only.`,
       });
     }
 
-    if (
-      this.config.maxWeeklySpend &&
-      weeklySpend >= this.config.maxWeeklySpend
-    ) {
-      this.exceeded = true;
+    if (weeklyCapExceeded && maxWeekly) {
       await this.fireAlert({
         type: "cap",
         level: "weekly",
         currentSpend: weeklySpend,
-        limit: this.config.maxWeeklySpend,
-        percentage: (weeklySpend / this.config.maxWeeklySpend) * 100,
-        message: `Weekly triage budget exceeded ($${weeklySpend.toFixed(2)}/$${this.config.maxWeeklySpend.toFixed(2)}). Tier 1 disabled, Tier 0 only.`,
+        limit: maxWeekly,
+        percentage: (weeklySpend / maxWeekly) * 100,
+        message: `Weekly triage budget exceeded ($${weeklySpend.toFixed(2)}/$${maxWeekly.toFixed(2)}). Tier 1 disabled, Tier 0 only.`,
       });
     }
 
