@@ -14,11 +14,19 @@ unchanged since 0.6.6; upgrading changes no runtime behaviour.
 
 ### Changed
 
-- **Dependencies** — routine Dependabot bumps to the lockfile: npm-patch group
-  (`zod` 4.6.5 → 4.6.7, `@typescript-eslint/*` 8.71.1 → 8.71.2, `vitest` and
-  `@vitest/coverage-v8` 5.0.3 → 5.0.5; #231). `package.json` ranges are
-  unchanged.
-- **`actions/create-github-app-token` bumped** in `promote-main.yml`. (#230)
+- **Dependencies** — routine Dependabot bump of the lockfile's npm-patch group
+  (#231): `zod` 4.6.5 → 4.6.7 (the only runtime dependency that moved),
+  `@typescript-eslint/*` 8.71.1 → 8.71.2, `vitest` and `@vitest/coverage-v8`
+  5.0.3 → 5.0.5, plus transitive dev-dependency updates (about 35 lockfile
+  entries, including `obug` 2.1.4 → 3.0.0, `vite`, `rollup`, `@babel/*`,
+  `postcss`). `package.json` ranges are unchanged, and the lockfile is not
+  published, so installed consumers are unaffected; the published tarball is
+  functionally identical to 0.6.6.
+
+### CI
+
+- **`actions/create-github-app-token` v3.2.0 → v3.3.0** (SHA pin bumped) in
+  `promote-main.yml`. CI only. (#230)
 
 ## [0.6.6] — 2026-10-15
 
