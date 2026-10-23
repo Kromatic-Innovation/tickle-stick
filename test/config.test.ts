@@ -1,6 +1,7 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { loadConfigFromString } from "../src/config/loader.js";
+import { loadConfig, loadConfigFromString } from "../src/config/loader.js";
 import { tickleStickConfigSchema } from "../src/config/schema.js";
 import { DEFAULT_CONFIG } from "../src/config/defaults.js";
 
@@ -490,4 +491,228 @@ describe("StageConfig.input filter validation", () => {
       tickleStickConfigSchema.parse(buildWithInput(input)),
     ).toThrow();
   });
+});
+
+
+function buildStage(stage: Record<string, unknown>) {
+  return {
+    tickleStick: {
+      pipelines: {
+        test: {
+          stages: [stage],
+        },
+      },
+    },
+  };
+}
+
+function buildAlert(at: unknown) {
+  return {
+    tickleStick: {
+      budget: {
+        alerts: [{ at }],
+      },
+    },
+  };
+}
+
+describe("Strict stage schema (tickle-stick#243)", () => {
+  it("rejects an unknown key, naming it (case typo: systemprompt)", () => {
+    let caught: unknown;
+    try {
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemprompt: "Classify this.",
+        }),
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(String(caught)).toContain("systemprompt");
+  });
+
+  it("rejects an unknown key, naming it (typo: confidenceThreshhold)", () => {
+    let caught: unknown;
+    try {
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify this.",
+          confidenceThreshhold: 0.8,
+        }),
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(String(caught)).toContain("confidenceThreshhold");
+  });
+
+  it("rejects a cheap-model stage with no systemPrompt", () => {
+    expect(() =>
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+        }),
+      ),
+    ).toThrow(/systemPrompt/);
+  });
+
+  it("rejects a script stage with no command", () => {
+    expect(() =>
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "gather",
+          type: "script",
+        }),
+      ),
+    ).toThrow(/command/);
+  });
+
+  it("still accepts an expensive-model stage without systemPrompt", () => {
+    expect(() =>
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "reason",
+          type: "model",
+          provider: "expensive",
+          prompt: "Synthesize: {{items}}",
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("still accepts a callback stage with no extra fields", () => {
+    expect(() =>
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "deliver",
+          type: "callback",
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("does not reject an env-interpolated empty-string command (P2-#5 non-regression)", () => {
+    // loadConfigFromString substitutes "" for a missing env var and warns
+    // separately (loader.ts); that is a distinct, already-surfaced
+    // misconfiguration from an *absent* command key and must still load.
+    expect(() =>
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "gather",
+          type: "script",
+          command: "",
+        }),
+      ),
+    ).not.toThrow();
+  });
+});
+
+describe("Budget alert `at` validation (tickle-stick#243, probe P5)", () => {
+  it.each([80, 0.5, "80%", "0.5", "50"])(
+    "accepts valid at value %j",
+    (at) => {
+      expect(() =>
+        tickleStickConfigSchema.parse(buildAlert(at)),
+      ).not.toThrow();
+    },
+  );
+
+  it.each(["eighty%", "high", "", "80percent", "%80"])(
+    "rejects invalid at string %j",
+    (at) => {
+      expect(() => tickleStickConfigSchema.parse(buildAlert(at))).toThrow();
+    },
+  );
+
+  it("probe P5: typo'd stage key and invalid `at` string both throw at config load", () => {
+    // Re-run of the audit's probe P5, which previously observed:
+    //   parsed stage keys: name,type,args,timeout,provider
+    //   parsed alerts: [{"type":"percentage","value":null}, ...]
+    // (systemPrompt silently stripped; "eighty%" silently parsed to NaN).
+    // Both must now throw instead of silently degrading.
+    expect(() =>
+      tickleStickConfigSchema.parse(
+        buildStage({
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemprompt: "Classify this.", // typo: lowercase 'p'
+        }),
+      ),
+    ).toThrow();
+
+    expect(() =>
+      tickleStickConfigSchema.parse({
+        tickleStick: {
+          budget: { alerts: [{ at: "eighty%" }] },
+        },
+      }),
+    ).toThrow();
+  });
+});
+
+describe("Shipped examples still load (AC5)", () => {
+  it("loads the shipped demo config (config/tickle-stick.yaml)", () => {
+    const demoPath = path.resolve(__dirname, "../config/tickle-stick.yaml");
+    const config = loadConfig(demoPath);
+    expect(config.tickleStick.pipelines["demo"].stages).toHaveLength(3);
+  });
+
+  const readme = fs.readFileSync(
+    path.resolve(__dirname, "../README.md"),
+    "utf-8",
+  );
+  const yamlBlocks = [...readme.matchAll(/```yaml\n([\s\S]*?)```/g)].map(
+    (m) => m[1],
+  );
+
+  // Tolerates a leading `# tickle-stick.yaml`-style comment (or blank
+  // lines) before the `tickleStick:` root key — without this, a fence
+  // like:
+  //   # tickle-stick.yaml
+  //   tickleStick:
+  // fails to match and is silently excluded from validation, which is
+  // exactly the class of silent no-op this issue is about (sentry[bot]
+  // finding on tickle-stick#243's first version of this test: the
+  // anchored `/^\s*tickleStick:/` filter matched only 1 of the README's 2
+  // full-config fences, and the excluded one was the main, most-copied
+  // example).
+  const fullConfigBlocks = yamlBlocks.filter((block) =>
+    /^\s*(?:#[^\n]*\n\s*)*tickleStick:/.test(block),
+  );
+
+  // Independent cross-check so the filter above can never again silently
+  // under-match without the test noticing: count fences that merely
+  // *contain* `tickleStick:` anywhere, by a dumb substring search, and
+  // require the filtered count to equal it. A future README edit that
+  // adds a full-config example the filter fails to recognize now fails
+  // this test loudly instead of quietly validating fewer examples than it
+  // claims to.
+  const blocksContainingRootKey = yamlBlocks.filter((block) =>
+    block.includes("tickleStick:"),
+  );
+
+  it("filter matches every README fence that contains tickleStick:, not fewer", () => {
+    expect(fullConfigBlocks.length).toBe(blocksContainingRootKey.length);
+    // Guard against the extraction itself silently finding nothing (e.g.
+    // if the README's code-fence language tag ever changes).
+    expect(fullConfigBlocks.length).toBeGreaterThan(0);
+  });
+
+  it.each(fullConfigBlocks.map((block, i) => [i, block] as const))(
+    "loads full tickleStick YAML example #%i embedded in README.md",
+    (_i, block) => {
+      expect(() => loadConfigFromString(block)).not.toThrow();
+    },
+  );
 });

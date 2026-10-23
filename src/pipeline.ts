@@ -87,6 +87,32 @@ export class Pipeline {
     this.onStageComplete = options.onStageComplete;
     this.onError = options.onError;
 
+    // Construction-time validation (tickle-stick#241, operator ruling D2):
+    // a missing provider or missing systemPrompt for a cheap-model stage
+    // used to be a silent runtime skip inside StageRouter. That is a
+    // config error, not a runtime condition, so it fails fast here,
+    // before the stage loop ever runs — distinct from the budget-cap
+    // case, which remains a runtime skip (see StageRouter.runModelStage).
+    // Scoped narrowly to `type: "model"` stages with `provider: "cheap"`:
+    // an expensive-model stage with no `systemPrompt` (e.g. a prompt-only
+    // "reason" stage) is unaffected, and the triage-provider check only
+    // applies when the config actually contains a cheap-model stage.
+    // Strict schema-wide validation for every other stage shape is
+    // tickle-stick#243's concern, not this one's.
+    for (const stage of this.config.stages) {
+      if (stage.type !== "model" || stage.provider !== "cheap") continue;
+      if (!stage.systemPrompt) {
+        throw new Error(
+          `Pipeline config error: model stage "${stage.name}" has provider "cheap" but no systemPrompt`,
+        );
+      }
+      if (!options.triageProvider) {
+        throw new Error(
+          `Pipeline config error: model stage "${stage.name}" has provider "cheap" but no triageProvider was supplied to the Pipeline`,
+        );
+      }
+    }
+
     this.budgetManager = options.budgetConfig
       ? new BudgetManager({
           config: options.budgetConfig,
@@ -109,6 +135,32 @@ export class Pipeline {
 
   async run(): Promise<PipelineResult> {
     const pipelineStart = performance.now();
+
+    // Re-check the budget cap against storage before the stage loop starts.
+    // Without this, a long-lived Pipeline that already skipped the cheap
+    // tier never issues another costed event, so the cap can never clear
+    // on day/week rollover, and a freshly-constructed Pipeline whose
+    // storage is already over the cap starts with `exceeded` false and
+    // under-enforces its first run (tickle-stick#240).
+    //
+    // Guarded the same way emit()'s record() call is guarded below: a
+    // throwing storage adapter (or alert sink) must surface via onError,
+    // not reject run() itself — storage/hook failures are documented as
+    // best-effort everywhere else in this class (tickle-stick#240,
+    // Finding 1; same "budget-record" label as emit() uses, so a consumer
+    // has one label for "budget bookkeeping failed", not two).
+    if (this.budgetManager) {
+      try {
+        await this.budgetManager.refresh();
+      } catch (err) {
+        try {
+          this.onError?.("budget-record", err, "post-hook");
+        } catch {
+          /* best-effort: never let a throwing onError handler escape here */
+        }
+      }
+    }
+
     const context: PipelineContext = {
       allItems: [],
       classified: [],
