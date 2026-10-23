@@ -2,6 +2,16 @@ import { CLASSIFICATIONS, type ClassificationResult } from "../types.js";
 
 const VALID_CLASSIFICATIONS = new Set<string>(CLASSIFICATIONS);
 
+/** Span of the first balanced top-level JSON object found in some text. */
+interface JsonSpan {
+  /** The JSON object substring itself (inclusive of its braces). */
+  text: string;
+  /** Index of the opening `{`. */
+  start: number;
+  /** Index just past the matching closing `}` (exclusive). */
+  end: number;
+}
+
 /**
  * Extract the first balanced top-level JSON object from `text`, scanning
  * forward from the first `{` and tracking brace depth (ignoring braces
@@ -12,7 +22,7 @@ const VALID_CLASSIFICATIONS = new Set<string>(CLASSIFICATIONS);
  * valid JSON object followed by unrelated text like `{x}`) into an invalid
  * JSON.parse candidate. Returns null when no balanced object is found.
  */
-function extractJsonObject(text: string): string | null {
+function extractJsonObject(text: string): JsonSpan | null {
   const start = text.indexOf("{");
   if (start === -1) return null;
 
@@ -41,7 +51,7 @@ function extractJsonObject(text: string): string | null {
     } else if (ch === "}") {
       depth--;
       if (depth === 0) {
-        return text.slice(start, i + 1);
+        return { text: text.slice(start, i + 1), start, end: i + 1 };
       }
     }
   }
@@ -50,8 +60,7 @@ function extractJsonObject(text: string): string | null {
 }
 
 /**
- * True when `text` mentions urgency anywhere, independent of the
- * structured `classification` field. Deliberately simple and
+ * True when `text` mentions urgency anywhere. Deliberately simple and
  * deliberately conservative (favors escalation over a silent drop).
  */
 function mentionsUrgent(text: string): boolean {
@@ -76,23 +85,29 @@ function isValidConfidence(value: unknown): value is number {
  * is present but out of the 0..1 range or non-finite.
  *
  * Non-skippable safety net: a "routine" verdict alone never suppresses
- * escalation when the raw response text also mentions urgency anywhere,
- * regardless of how confident the structured verdict claims to be. See
- * tickle-stick#247 (AC4) — this intentionally lives entirely here, independent
- * of the confidence/threshold machinery in tier1-triage.ts, so a forged or
- * injected high-confidence "routine" result cannot drop an item that the
- * raw text itself flags as urgent.
+ * escalation when text OUTSIDE the parsed JSON object (leading or trailing
+ * context around it — exactly where injected or echoed content lands)
+ * mentions urgency, regardless of how confident the structured verdict
+ * claims to be. See tickle-stick#247 (AC4) — this intentionally lives
+ * entirely here, independent of the confidence/threshold machinery in
+ * tier1-triage.ts, so a forged or injected high-confidence "routine"
+ * result cannot drop an item whose surrounding raw text flags it as
+ * urgent. Scoped to text OUTSIDE the JSON span (not the whole raw text)
+ * so that a well-behaved provider response consisting of only the JSON
+ * object — including a "response" field that happens to contain the word
+ * "urgent" — can never trip the guard; a response that is pure JSON has no
+ * outside text at all.
  */
 export function parseClassificationResponse(
   text: string,
 ): ClassificationResult {
   try {
-    const jsonText = extractJsonObject(text);
-    if (!jsonText) {
+    const jsonSpan = extractJsonObject(text);
+    if (!jsonSpan) {
       return { classification: "needs-reasoning", confidence: 0 };
     }
 
-    const parsed = JSON.parse(jsonText) as {
+    const parsed = JSON.parse(jsonSpan.text) as {
       classification?: string;
       response?: string;
       confidence?: number;
@@ -115,8 +130,12 @@ export function parseClassificationResponse(
       return { classification: "needs-reasoning", confidence: 0 };
     }
 
-    if (classification === "routine" && mentionsUrgent(text)) {
-      return { classification: "needs-reasoning", confidence: 0 };
+    if (classification === "routine") {
+      const outsideJson =
+        text.slice(0, jsonSpan.start) + text.slice(jsonSpan.end);
+      if (mentionsUrgent(outsideJson)) {
+        return { classification: "needs-reasoning", confidence: 0 };
+      }
     }
 
     return {

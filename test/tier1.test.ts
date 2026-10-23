@@ -19,6 +19,45 @@ const stageConfig = {
   confidenceThreshold: 0.7,
 };
 
+/**
+ * Ported verbatim (logic-for-logic) from voltaire's live `src/pipeline.ts`
+ * `extractEmailItemJson` — the function the only published-contract
+ * consumer of `classifyItem`'s prompt `text` uses to recover its JSON
+ * payload. Kept as a test fixture (not imported, voltaire is a separate
+ * repo) so the AC3 delimiter change is regression-tested against voltaire's
+ * actual tolerance for leading/trailing context, not just our own
+ * assumption of it.
+ */
+function extractEmailItemJson(text: string): string {
+  const start = text.indexOf("{");
+  if (start === -1) throw new Error("...no JSON object found...");
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return text.slice(start);
+}
+
 function mockProvider(
   overrides: Partial<Awaited<ReturnType<TriageProvider["classify"]>>> = {},
 ): TriageProvider {
@@ -127,7 +166,7 @@ describe("Tier 1: Classification", () => {
     );
 
     expect(provider.classify).toHaveBeenCalledWith(
-      "[type: test]\nSubject line\nFull body text",
+      "[type: test]\n--- begin item text (untrusted) ---\nSubject line\nFull body text\n--- end item text (untrusted) ---",
       "Classify this item.",
     );
   });
@@ -137,7 +176,7 @@ describe("Tier 1: Classification", () => {
     await classifyItem(makeItem("Just a summary"), stageConfig, provider);
 
     expect(provider.classify).toHaveBeenCalledWith(
-      "[type: test]\nJust a summary",
+      "[type: test]\n--- begin item text (untrusted) ---\nJust a summary\n--- end item text (untrusted) ---",
       "Classify this item.",
     );
   });
@@ -241,5 +280,56 @@ describe("Tier 1: Classification", () => {
 
     expect(classified.classification).toBe("needs-reasoning");
     expect(classified.confidence).toBe(0);
+  });
+
+  // --- AC3: delimited item text, additive over the voltaire contract ---
+
+  it("delimits item text in a brace-free data block", async () => {
+    const provider = mockProvider();
+    await classifyItem(
+      makeItem("Subject line", "Full body text"),
+      stageConfig,
+      provider,
+    );
+
+    const text = (provider.classify as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+
+    expect(text).toContain("--- begin item text (untrusted) ---");
+    expect(text).toContain("--- end item text (untrusted) ---");
+  });
+
+  it("never introduces a `{` before the item payload", async () => {
+    const provider = mockProvider();
+    const rawJson = '{"id":"abc123","subject":"test"}';
+    await classifyItem(makeItem(rawJson), stageConfig, provider);
+
+    const text = (provider.classify as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+    const payloadStart = text.indexOf(rawJson);
+
+    expect(text.slice(0, payloadStart)).not.toContain("{");
+  });
+
+  it("round-trips a voltaire-shaped email item through voltaire's own brace-depth extractor", async () => {
+    const provider = mockProvider();
+    const emailJson = '{"id":"msg-1","from":"a@b.com","subject":"Hi"}';
+    const item: WorkItem = {
+      id: "email-1",
+      source: "test",
+      type: "email",
+      summary: emailJson,
+      timestamp: new Date(),
+    };
+    await classifyItem(item, stageConfig, provider);
+
+    const text = (provider.classify as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as string;
+
+    // voltaire's extractor tolerates arbitrary leading/trailing context and
+    // recovers exactly the JSON object span.
+    const extracted = extractEmailItemJson(text);
+    expect(extracted).toBe(emailJson);
+    expect(JSON.parse(extracted)).toEqual(JSON.parse(emailJson));
   });
 });
