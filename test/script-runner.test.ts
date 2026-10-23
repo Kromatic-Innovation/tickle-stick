@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { tmpdir } from "node:os";
 import { runScript, runPipedScript } from "../src/script-runner.js";
 
 describe("runScript", () => {
@@ -180,6 +181,28 @@ describe("runScript", () => {
     expect(items[0].id).toBe("explicit-1");
     expect(items[1].id).not.toBe("explicit-1");
     expect(items[1].id).toMatch(/-item-1$/);
+  });
+
+  it("the same command and args in different cwds get different default-id prefixes (Seer finding on tickle-stick#245)", async () => {
+    const sameArgs = [
+      "-e",
+      'process.stdout.write(JSON.stringify([{summary:"same script, different cwd"}]))',
+    ];
+    const inProjectDir = await runScript("node", sameArgs, 5000, process.cwd());
+    const inTmpDir = await runScript("node", sameArgs, 5000, tmpdir());
+
+    expect(inProjectDir[0].id).not.toBe(inTmpDir[0].id);
+  });
+
+  it("the same command, args, and cwd still get the same default-id prefix", async () => {
+    const sameArgs = [
+      "-e",
+      'process.stdout.write(JSON.stringify([{summary:"same everything"}]))',
+    ];
+    const first = await runScript("node", sameArgs, 5000, process.cwd());
+    const second = await runScript("node", sameArgs, 5000, process.cwd());
+
+    expect(first[0].id).toBe(second[0].id);
   });
 });
 

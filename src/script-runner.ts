@@ -24,7 +24,9 @@ export function runScript(
           resolve([]);
           return;
         }
-        resolve(parseScriptOutput(stdout, scriptKey(command, args), onError));
+        resolve(
+          parseScriptOutput(stdout, scriptKey(command, args, cwd), onError),
+        );
       },
     );
   });
@@ -74,7 +76,9 @@ export function runPipedScript(
         resolve([]);
         return;
       }
-      resolve(parseScriptOutput(stdout, scriptKey(command, args), onError));
+      resolve(
+        parseScriptOutput(stdout, scriptKey(command, args, cwd), onError),
+      );
     });
 
     child.on("error", (err) => {
@@ -100,21 +104,36 @@ export function runPipedScript(
  * stages never collide (audit F19: two gather stages both defaulting to
  * `item-0` corrupted id-keyed dedupe/enrichment downstream).
  *
- * Derived from the command + args rather than a caller-supplied stage name:
- * neither `runScript` nor `runPipedScript` currently receives the pipeline
- * stage name, and threading it through would require changing the stage
- * dispatcher that calls these functions. Keying on command+args keeps the
- * fix fully contained in this module and is deterministic across runs (same
- * invocation always hashes the same way), which matters because downstream
- * consumers (voltaire, storage adapters) may persist default ids across
- * runs. Two stages that invoke the exact same command with the exact same
- * args would still collide; that case is not addressed here.
+ * Derived from command + args + cwd rather than a caller-supplied stage
+ * name: neither `runScript` nor `runPipedScript` currently receives the
+ * pipeline stage name, and threading it through would require changing the
+ * stage dispatcher that calls these functions. Keying on the invocation's
+ * own identity keeps the fix fully contained in this module and is
+ * deterministic across runs (same invocation always hashes the same way),
+ * which matters because downstream consumers (voltaire, storage adapters)
+ * may persist default ids across runs. `cwd` is included because two
+ * gather stages commonly run the *same* script against *different* working
+ * directories (e.g. two project checkouts); hashing only command+args would
+ * make those collide exactly the way F19 describes (Seer finding on tickle-stick#245).
+ * An absent `cwd` is normalized to a sentinel (`\u0001absent\u0001`) that
+ * no real path can equal, rather than coerced to `""` or `"."`, so "no cwd"
+ * is its own stable value and never collides with a stage that explicitly
+ * sets `cwd: ""`. Two stages that invoke the exact same command with the
+ * exact same args *and* the exact same cwd (including both omitting it)
+ * would still collide; that case is not addressed here.
  */
-function scriptKey(command: string, args: readonly string[]): string {
+function scriptKey(
+  command: string,
+  args: readonly string[],
+  cwd: string | undefined,
+): string {
+  const cwdKey = cwd === undefined ? "\u0001absent\u0001" : cwd;
   return createHash("sha1")
     .update(command)
     .update("\u0000")
     .update(args.join("\u0000"))
+    .update("\u0000")
+    .update(cwdKey)
     .digest("hex")
     .slice(0, 8);
 }
