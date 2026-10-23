@@ -62,6 +62,16 @@ export interface ClassificationResult {
   provider?: string;
   /** Model identifier (e.g. "claude-haiku-4-5"); set by the provider implementation. */
   model?: string;
+  /**
+   * Set by a provider implementation when it degrades to the
+   * `needs-reasoning`/confidence-0 sentinel because the underlying call
+   * failed (non-OK HTTP, network/abort error, or an empty/unparseable
+   * response) rather than because the model genuinely returned low
+   * confidence. A short human-readable reason, e.g. "anthropic API 404".
+   * Additive/optional — existing constructors keep compiling. See
+   * tickle-stick#239.
+   */
+  failureReason?: string;
 }
 
 /** Provider for cheap model classification. Host injects implementation.

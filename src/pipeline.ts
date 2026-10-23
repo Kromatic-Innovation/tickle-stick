@@ -206,8 +206,15 @@ export class Pipeline {
       this.logger(event);
     }
     if (this.budgetManager && event.costEstimate > 0) {
-      this.budgetManager.record(event).catch(() => {
-        /* best-effort */
+      this.budgetManager.record(event).catch((err: unknown) => {
+        // Budget recording is best-effort and must never fail the pipeline,
+        // but the failure itself (e.g. a throwing storage adapter) should
+        // still surface to onError observers rather than being discarded.
+        try {
+          this.onError?.("budget-record", err, "post-hook");
+        } catch {
+          /* best-effort: never let a throwing onError handler escape here */
+        }
       });
     }
   }
