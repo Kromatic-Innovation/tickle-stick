@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stage, and the cost calculator charges zero cost instead of falling back
   to `DEFAULT_COST_ESTIMATE` for a result that carries it. Additive and
   non-breaking. (#239, semver-minor)
+- **Skipping the cheap tier no longer drops items for `classified:*` stages
+  silently** — a budget-cap trip now skips every model stage (cheap and
+  expensive) explicitly: skipped items stay in `context` untouched (a
+  downstream callback stage with `input: "all"` still sees them), a
+  telemetry event names the budget as the skip reason, and `onError`
+  fires once per skipped stage. Previously this was a bare, unobserved
+  `return` in `StageRouter`. **Breaking:** a cheap-model stage with no
+  `provider: "cheap"` + `systemPrompt`, or a pipeline with a cheap-model
+  stage but no `triageProvider`, now throws at `new Pipeline(...)`
+  instead of silently skipping at runtime — this ties to the
+  strict-schema validation in #243 but is enforced here at construction
+  time regardless. The README's budget pass-through sentence is rewritten
+  to match. (#241, semver-minor)
 
 ## [0.6.7] — 2026-10-23
 

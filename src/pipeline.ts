@@ -87,6 +87,32 @@ export class Pipeline {
     this.onStageComplete = options.onStageComplete;
     this.onError = options.onError;
 
+    // Construction-time validation (tickle-stick#241, operator ruling D2):
+    // a missing provider or missing systemPrompt for a cheap-model stage
+    // used to be a silent runtime skip inside StageRouter. That is a
+    // config error, not a runtime condition, so it fails fast here,
+    // before the stage loop ever runs — distinct from the budget-cap
+    // case, which remains a runtime skip (see StageRouter.runModelStage).
+    // Scoped narrowly to `type: "model"` stages with `provider: "cheap"`:
+    // an expensive-model stage with no `systemPrompt` (e.g. a prompt-only
+    // "reason" stage) is unaffected, and the triage-provider check only
+    // applies when the config actually contains a cheap-model stage.
+    // Strict schema-wide validation for every other stage shape is
+    // tickle-stick#243's concern, not this one's.
+    for (const stage of this.config.stages) {
+      if (stage.type !== "model" || stage.provider !== "cheap") continue;
+      if (!stage.systemPrompt) {
+        throw new Error(
+          `Pipeline config error: model stage "${stage.name}" has provider "cheap" but no systemPrompt`,
+        );
+      }
+      if (!options.triageProvider) {
+        throw new Error(
+          `Pipeline config error: model stage "${stage.name}" has provider "cheap" but no triageProvider was supplied to the Pipeline`,
+        );
+      }
+    }
+
     this.budgetManager = options.budgetConfig
       ? new BudgetManager({
           config: options.budgetConfig,

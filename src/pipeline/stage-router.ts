@@ -189,11 +189,52 @@ export class StageRouter {
     const inputItems = applyInputFilter(stage.input, context);
     if (inputItems.length === 0) return;
 
+    // Budget-exceeded is a RUNTIME skip (tickle-stick#241, operator ruling
+    // D2) — distinct from the missing-provider/missing-systemPrompt case,
+    // which is now a config error that fails fast at Pipeline construction
+    // (see pipeline.ts). Every model stage, cheap or expensive, is skipped
+    // while the cap is tripped. Skipped items are never written into
+    // `context` here (they were already there, or weren't — this stage
+    // simply doesn't touch it), so a downstream callback stage with
+    // `input: "all"` still sees them.
+    if (this.budgetManager?.isBudgetExceeded()) {
+      this.skipModelStageForBudget(stage, result);
+      return;
+    }
+
     if (stage.provider === "cheap") {
       await this.runCheapModel(stage, inputItems, context, result);
     } else {
       await this.runExpensiveModel(stage, inputItems, context, result);
     }
+  }
+
+  /**
+   * Skip an entire model stage because the budget cap is tripped. Emits a
+   * telemetry event naming the budget as the skip reason and calls
+   * `onError` once for the stage (tickle-stick#241, operator ruling D2,
+   * AC1). This is a new, additive emit call — distinct from the per-item
+   * emit inside {@link runCheapModel} — so it doesn't collide with that
+   * event's shape.
+   */
+  private skipModelStageForBudget(
+    stage: StageConfig,
+    result: StageResult,
+  ): void {
+    result.errored = true;
+    this.emit({
+      pipeline: this.pipelineName,
+      tier: stage.provider === "cheap" ? 1 : 2,
+      action: "skipped",
+      latencyMs: 0,
+      costEstimate: 0,
+      metadata: { reason: "budget", stage: stage.name },
+    });
+    this.onError?.(
+      stage.name,
+      new Error(`model stage "${stage.name}" skipped: budget cap exceeded`),
+      "stage",
+    );
   }
 
   private async runCheapModel(
@@ -202,8 +243,12 @@ export class StageRouter {
     context: PipelineContext,
     result: StageResult,
   ): Promise<void> {
-    const budgetOk = !this.budgetManager?.isBudgetExceeded();
-    if (!this.provider || !budgetOk || !stage.systemPrompt) return;
+    // Defensive only: Pipeline's constructor validates that every
+    // provider: "cheap" model stage has both a systemPrompt and a
+    // triageProvider before the stage loop ever runs (tickle-stick#241).
+    // This guard exists purely to satisfy the nullable `this.provider`
+    // type for a StageRouter constructed directly, bypassing Pipeline.
+    if (!this.provider || !stage.systemPrompt) return;
 
     const classified: ClassifiedItem[] = [];
     for (let i = 0; i < inputItems.length; i++) {

@@ -710,3 +710,101 @@ describe("Budget cap re-evaluation at the pipeline level (tickle-stick#240)", ()
     expect(classifyResult.items.length).toBeLessThanOrEqual(20);
   });
 });
+
+describe("Budget-cap model-stage skip (tickle-stick#241, operator ruling D2)", () => {
+  // Discharges AC4/AC5 ("probe P3 re-run") as tests — the operator-local
+  // audit corpus referenced by the issue is unreachable from this
+  // container. This reproduces the same shape: a cheap "classify" stage
+  // and an expensive "reason" stage both run while the budget cap is
+  // already tripped, followed by a callback stage with `input: "all"`.
+  it("skips every model stage, keeps items in context for the input:\"all\" callback, emits a budget-reason telemetry event, and calls onError once per skipped stage", async () => {
+    const twoItems = sampleItems.slice(0, 2);
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      // Storage already reports spend over the cap before this Pipeline
+      // instance has ever recorded a costed event itself (same pattern as
+      // the tickle-stick#240 "fresh Pipeline over cap" test above).
+      getSpendSince: vi.fn().mockResolvedValue(5),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const classifyFn = vi
+      .fn()
+      .mockResolvedValue({ classification: "routine", confidence: 0.95 });
+    const stageCallbacks = {
+      reason: vi.fn().mockResolvedValue("should not run"),
+      deliver: vi.fn().mockResolvedValue("delivered"),
+    };
+    const onError = vi.fn();
+    const events: Array<Record<string, unknown>> = [];
+
+    const pipeline = new Pipeline({
+      name: "budget-skip",
+      config: {
+        stages: [
+          scriptStageForItems(twoItems),
+          {
+            name: "classify",
+            type: "model",
+            provider: "cheap",
+            systemPrompt: "Classify",
+          },
+          {
+            name: "reason",
+            type: "model",
+            provider: "expensive",
+            prompt: "Reason: {{items}}",
+          },
+          {
+            name: "deliver",
+            type: "callback",
+            input: "all",
+          },
+        ],
+      },
+      telemetry: { enabled: true, format: "json" },
+      logSink: (e) => events.push(e as unknown as Record<string, unknown>),
+      triageProvider: mockProvider(classifyFn),
+      stageCallbacks,
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    const result = await pipeline.run();
+
+    // Both model stages are skipped entirely — the cheap classifier never
+    // runs and the expensive callback never fires.
+    expect(classifyFn).not.toHaveBeenCalled();
+    expect(stageCallbacks.reason).not.toHaveBeenCalled();
+    const classifyResult = result.stageResults.find(
+      (s) => s.name === "classify",
+    );
+    const reasonResult = result.stageResults.find((s) => s.name === "reason");
+    expect(classifyResult?.items).toHaveLength(0);
+    expect(classifyResult?.errored).toBe(true);
+    expect(reasonResult?.errored).toBe(true);
+
+    // The callback stage with input: "all" still receives both items — they
+    // were never removed from context, only never classified.
+    expect(stageCallbacks.deliver).toHaveBeenCalledOnce();
+    const [deliverItems] = stageCallbacks.deliver.mock.calls[0];
+    expect(deliverItems).toHaveLength(2);
+
+    // A budget-reason telemetry event fires once per skipped model stage.
+    const budgetEvents = events.filter(
+      (e) =>
+        (e.metadata as Record<string, unknown> | undefined)?.reason ===
+        "budget",
+    );
+    expect(budgetEvents).toHaveLength(2);
+    expect(
+      budgetEvents.map((e) => (e.metadata as Record<string, unknown>).stage),
+    ).toEqual(["classify", "reason"]);
+
+    // onError fires exactly once per skipped stage.
+    const skipErrorCalls = onError.mock.calls.filter(([stageName]) =>
+      ["classify", "reason"].includes(stageName as string),
+    );
+    expect(skipErrorCalls).toHaveLength(2);
+  });
+});

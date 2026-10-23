@@ -688,3 +688,118 @@ describe("Pipeline", () => {
     expect(pipeline).toBeDefined();
   });
 });
+
+describe("Construction-time validation (tickle-stick#241, operator ruling D2)", () => {
+  it("throws at construction when a cheap-model stage has no systemPrompt", () => {
+    expect(
+      () =>
+        new Pipeline({
+          name: "no-system-prompt",
+          config: makeConfig([
+            {
+              name: "classify",
+              type: "model",
+              provider: "cheap",
+            },
+          ]),
+          telemetry: { enabled: false, format: "json" },
+          triageProvider: mockProvider(),
+        }),
+    ).toThrow(/systemPrompt/);
+  });
+
+  it("throws at construction when a cheap-model stage has a systemPrompt but no triageProvider was supplied", () => {
+    expect(
+      () =>
+        new Pipeline({
+          name: "no-triage-provider",
+          config: makeConfig([
+            {
+              name: "classify",
+              type: "model",
+              provider: "cheap",
+              systemPrompt: "Classify",
+            },
+          ]),
+          telemetry: { enabled: false, format: "json" },
+          // Deliberately no triageProvider.
+        }),
+    ).toThrow(/triageProvider/);
+  });
+
+  it("does not throw for an expensive-model stage with no systemPrompt — validation is scoped to provider: \"cheap\" stages only", () => {
+    expect(
+      () =>
+        new Pipeline({
+          name: "expensive-no-system-prompt",
+          config: makeConfig([
+            {
+              name: "reason",
+              type: "model",
+              provider: "expensive",
+              prompt: "Reason: {{items}}",
+            },
+          ]),
+          telemetry: { enabled: false, format: "json" },
+        }),
+    ).not.toThrow();
+  });
+
+  it("does not throw for a pipeline with no cheap-model stage and no triageProvider — the provider check only fires when a cheap-model stage exists", () => {
+    expect(
+      () =>
+        new Pipeline({
+          name: "no-cheap-stage",
+          config: makeConfig([
+            {
+              name: "deliver",
+              type: "callback",
+            },
+          ]),
+          telemetry: { enabled: false, format: "json" },
+        }),
+    ).not.toThrow();
+  });
+
+  it("constructs successfully for the voltaire-shaped config (script + cheap-model-with-systemPrompt + expensive-model-without-systemPrompt + callback, triageProvider + deprecated stageCallbacks)", () => {
+    expect(
+      () =>
+        new Pipeline({
+          name: "voltaire-shaped",
+          config: makeConfig([
+            {
+              name: "gather",
+              type: "script",
+              command: "node",
+              args: ["-e", "process.stdout.write('[]')"],
+              timeout: 5000,
+            },
+            {
+              name: "classify",
+              type: "model",
+              provider: "cheap",
+              systemPrompt: "Classify this email.",
+            },
+            {
+              name: "reason",
+              type: "model",
+              provider: "expensive",
+              prompt: "Reason about: {{items}}",
+              // No systemPrompt — only a cheap-model stage requires one.
+            },
+            {
+              name: "deliver",
+              type: "callback",
+              args: [],
+              timeout: 30000,
+            },
+          ]),
+          telemetry: { enabled: false, format: "json" },
+          triageProvider: mockProvider(),
+          stageCallbacks: {
+            deliver: vi.fn().mockResolvedValue("ok"),
+          },
+        }),
+    ).not.toThrow();
+  });
+});
