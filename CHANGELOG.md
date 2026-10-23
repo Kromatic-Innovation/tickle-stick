@@ -152,6 +152,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over rows already written by a pre-fix version still double-counts**
   until those rows are pruned — this change does not rewrite or backfill
   stored history. (#254, semver-minor)
+- **A piped script stage no longer deadlocks on heavy stderr, and a child
+  that ignores SIGTERM no longer hangs the stage forever** — `runPipedScript`
+  spawned the child with stderr piped but never read it, so a script writing
+  more than the OS pipe buffer (typically 64 KiB) blocked on `write(2)` and
+  stalled the stage for its full timeout. stderr is now drained as it
+  arrives, with a bounded 2 KiB tail retained and quoted back in the timeout
+  and non-zero-exit error messages. On timeout the handler still sends
+  SIGTERM, but now escalates to SIGKILL after a 500 ms grace period
+  (`SIGKILL_GRACE_MS`) and settles the promise at that point rather than
+  waiting for a `close` event that a SIGTERM-ignoring child — or an orphaned
+  grandchild holding the stdio pipes open — may never produce. Measured: a
+  script writing 2 MiB to stderr and then emitting two items returned 0 items
+  after 4004 ms against a 4000 ms timeout before the fix, and 2 items in
+  46 ms after it. The doc comment on `runPipedScript` claimed it "returns the
+  original items unchanged" on error; it has always returned `[]` and
+  reported via `onError`, with the caller leaving items untouched, and now
+  says so. (#244, semver-patch)
 
 ## [0.6.7] — 2026-10-23
 

@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { tmpdir } from "node:os";
-import { runScript, runPipedScript } from "../src/script-runner.js";
+import {
+  runScript,
+  runPipedScript,
+  SIGKILL_GRACE_MS,
+} from "../src/script-runner.js";
 
 describe("runScript", () => {
   it("parses valid JSON array of work items", async () => {
@@ -245,5 +249,83 @@ describe("runPipedScript", () => {
   it("returns empty array when the piped command fails", async () => {
     const items = await runPipedScript("false", [], 5000, "[]");
     expect(items).toEqual([]);
+  });
+
+  // Audit finding F11, probe P7. stderr was piped but never read, so a child
+  // writing more than the OS pipe buffer (typically 64 KiB) blocked forever
+  // on write(2) and the stage deadlocked until its timeout. At the audit SHA
+  // this returned 0 items after 4004ms against a 4000ms timeout.
+  it("drains heavy stderr instead of deadlocking until the timeout", async () => {
+    const script = [
+      'const chunk = "e".repeat(64 * 1024);',
+      "for (let i = 0; i < 32; i++) process.stderr.write(chunk);",
+      "process.stdout.write(JSON.stringify([",
+      '{ id: "a", source: "s", type: "t", summary: "one" },',
+      '{ id: "b", source: "s", type: "t", summary: "two" },',
+      "]));",
+    ].join("\n");
+
+    const errors: unknown[] = [];
+    const started = Date.now();
+    const items = await runPipedScript(
+      "node",
+      ["-e", script],
+      4000,
+      "[]",
+      undefined,
+      (err) => errors.push(err),
+    );
+    const elapsed = Date.now() - started;
+
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.id)).toEqual(["a", "b"]);
+    expect(errors).toEqual([]);
+    // 2 MiB of stderr must not cost anything like the 4000ms timeout.
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it("escalates to SIGKILL and settles when the child ignores SIGTERM", async () => {
+    // `trap '' TERM` makes the shell ignore SIGTERM outright, so the old
+    // timeout handler's lone child.kill("SIGTERM") never produced a 'close'
+    // event and the promise hung forever.
+    const timeout = 300;
+    const errors: unknown[] = [];
+    const started = Date.now();
+    const items = await runPipedScript(
+      "sh",
+      ["-c", "trap '' TERM; sleep 20"],
+      timeout,
+      "[]",
+      undefined,
+      (err) => errors.push(err),
+    );
+    const elapsed = Date.now() - started;
+
+    // `errored` in StageResult is set by stage-router's reportError, i.e. by
+    // onError firing at all — so a non-empty errors[] is exactly the stage
+    // reporting errored: true.
+    const errored = errors.length > 0;
+    expect(errored).toBe(true);
+    expect(items).toEqual([]);
+    expect(String(errors[0])).toContain(`timed out after ${timeout}ms`);
+    // Settles on the SIGKILL escalation, not on the child's 20s sleep.
+    expect(elapsed).toBeGreaterThanOrEqual(timeout);
+    expect(elapsed).toBeLessThan(timeout + SIGKILL_GRACE_MS + 3000);
+  });
+
+  it("quotes a bounded stderr tail in the failure message", async () => {
+    const errors: unknown[] = [];
+    const items = await runPipedScript(
+      "sh",
+      ["-c", "echo boom-from-stderr >&2; exit 3"],
+      5000,
+      "[]",
+      undefined,
+      (err) => errors.push(err),
+    );
+
+    expect(items).toEqual([]);
+    expect(String(errors[0])).toContain("exited with code 3");
+    expect(String(errors[0])).toContain("boom-from-stderr");
   });
 });
