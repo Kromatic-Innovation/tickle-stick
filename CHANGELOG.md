@@ -37,6 +37,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of zero, while a failure with no response body at all (404,
   network error, abort) still has no usage and stays zero-cost. Additive
   and non-breaking. (#239, semver-minor)
+- **Cheap-tier prompt shape fenced, and classifier-response parsing
+  hardened, against item-text prompt injection** — `tier1-triage.ts` now
+  wraps the item text (`summary`/`body`) in a `--- begin item text
+  (untrusted) ---` / `--- end item text (untrusted) ---` block; the
+  `[type: ...]`, `[labels: ...]`, and `[hasOwnerComment: true]` prefix
+  lines, and their order, are unchanged. The delimiters are deliberately
+  brace-free, so a consumer that locates its payload by scanning for the
+  first `{` and tracking brace depth (how the known consumer does it) is
+  unaffected — checked by a test that ports that exact scan and confirms
+  it still recovers an unchanged payload from the new prompt shape.
+  `parse.ts` is also stricter: a confidence value outside the 0..1 range
+  or non-finite is now rejected to `needs-reasoning`/confidence 0 instead
+  of being accepted unclamped; JSON extraction is now a balanced-brace
+  scan instead of a greedy first-`{`-to-last-`}` regex, so a valid JSON
+  object followed by trailing text now parses correctly where the greedy
+  match previously failed it; and a `routine` verdict is escalated to
+  `needs-reasoning`/confidence 0 when text *outside* the parsed JSON
+  object mentions urgency — a response consisting of only the JSON object
+  can never trip this, and the check is deliberately fail-open (e.g.
+  trailing prose saying "not urgent" still escalates). (#247, semver-minor)
 
 ## [0.6.7] — 2026-10-23
 
