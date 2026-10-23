@@ -25,9 +25,10 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function mockFetchResponse(body: unknown, ok = true): void {
+function mockFetchResponse(body: unknown, ok = true, status = 500): void {
   (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
     ok,
+    status,
     json: () => Promise.resolve(body),
   });
 }
@@ -144,6 +145,7 @@ describe("HttpTriageProvider", () => {
       mockFetchResponse({
         content: [
           {
+            type: "text",
             text: '{"classification":"routine","response":"Hello!","confidence":0.95}',
           },
         ],
@@ -175,6 +177,7 @@ describe("HttpTriageProvider", () => {
       mockFetchResponse({
         content: [
           {
+            type: "text",
             text: '{"classification":"routine","response":"Hi","confidence":0.9}',
           },
         ],
@@ -188,18 +191,116 @@ describe("HttpTriageProvider", () => {
     });
   });
 
+  describe("Anthropic thinking blocks (regression for tickle-stick#238)", () => {
+    it("skips a leading thinking block and extracts the text block (probe P8)", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "reasoning about the request..." },
+          {
+            type: "text",
+            text: '{"classification":"routine","confidence":0.95}',
+          },
+        ],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 120, output_tokens: 80 },
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const result = await provider.classify("hi", "Classify.");
+      expect(result.classification).toBe("routine");
+      expect(result.confidence).toBe(0.95);
+
+      const rawProvider = makeProvider({ provider: "anthropic" });
+      const raw = await rawProvider.classifyRaw("hi", "Classify.");
+      expect(raw).toBe('{"classification":"routine","confidence":0.95}');
+    });
+
+    it("extracts the text block unchanged when text is already first", async () => {
+      mockFetchResponse({
+        content: [
+          {
+            type: "text",
+            text: '{"classification":"routine","confidence":0.95}',
+          },
+        ],
+        stop_reason: "end_turn",
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const raw = await provider.classifyRaw("hi", "Classify.");
+      expect(raw).toBe('{"classification":"routine","confidence":0.95}');
+    });
+
+    it("classifyRaw throws when stop_reason is max_tokens and no text block exists", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "still reasoning, ran out of budget" },
+        ],
+        stop_reason: "max_tokens",
+        usage: { input_tokens: 120, output_tokens: 256 },
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      await expect(provider.classifyRaw("hi", "Classify.")).rejects.toThrow(
+        /max_tokens/,
+      );
+    });
+
+    it("classify degrades to the needs-reasoning sentinel on a max_tokens truncation, with failureReason set (tickle-stick#239)", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "still reasoning, ran out of budget" },
+        ],
+        stop_reason: "max_tokens",
+        usage: { input_tokens: 120, output_tokens: 256 },
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const result = await provider.classify("hi", "Classify.");
+      expect(result.classification).toBe("needs-reasoning");
+      expect(result.confidence).toBe(0);
+      // The tickle-stick#238 truncation throw is wired into the
+      // tickle-stick#239 failure channel: classify()'s catch sets
+      // failureReason from the thrown message.
+      expect(result.failureReason).toContain("max_tokens");
+      // Seer finding (tickle-stick#239): a max_tokens truncation still
+      // burned real tokens — the sentinel must carry the measured usage
+      // so the caller charges for it instead of silently costing zero.
+      expect(result.tokenUsage).toEqual({ input: 120, output: 256 });
+    });
+
+    it("has no tokenUsage on a truncation whose response carries no usage block (tickle-stick#239)", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "still reasoning, ran out of budget" },
+        ],
+        stop_reason: "max_tokens",
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const result = await provider.classify("hi", "Classify.");
+      expect(result.failureReason).toContain("max_tokens");
+      expect(result.tokenUsage).toBeUndefined();
+    });
+  });
+
   describe("error handling", () => {
-    it("returns needs-reasoning on HTTP error", async () => {
-      mockFetchResponse({}, false);
+    it("returns needs-reasoning on HTTP error, with failureReason set (tickle-stick#239)", async () => {
+      mockFetchResponse({}, false, 404);
 
       const provider = makeProvider();
       const result = await provider.classify("test", "Classify.");
 
       expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
+      expect(result.failureReason).toBeTruthy();
+      expect(result.failureReason).toContain("404");
+      // Complement of the max_tokens case: no body was ever received, so
+      // there is no usage to charge for — stays zero-cost (tickle-stick#239).
+      expect(result.tokenUsage).toBeUndefined();
     });
 
-    it("returns needs-reasoning on fetch failure", async () => {
+    it("returns needs-reasoning on fetch failure, with failureReason set (tickle-stick#239)", async () => {
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValue(
         new Error("Network error"),
       );
@@ -209,9 +310,11 @@ describe("HttpTriageProvider", () => {
 
       expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
+      expect(result.failureReason).toBe("Network error");
+      expect(result.tokenUsage).toBeUndefined();
     });
 
-    it("returns needs-reasoning on abort (timeout)", async () => {
+    it("returns needs-reasoning on abort (timeout), with failureReason set (tickle-stick#239)", async () => {
       (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
         () =>
           new Promise((_resolve, reject) => {
@@ -227,6 +330,7 @@ describe("HttpTriageProvider", () => {
 
       expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
+      expect(result.failureReason).toBeTruthy();
     });
 
     it("returns needs-reasoning when response has no content", async () => {
@@ -266,6 +370,7 @@ describe("HttpTriageProvider", () => {
       mockFetchResponse({
         content: [
           {
+            type: "text",
             text: '{"moscow":"should","proposed_action":"bump pg","affected_users":0,"confidence":0.7}',
           },
         ],

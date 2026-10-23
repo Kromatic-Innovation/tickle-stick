@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`HttpTriageProvider` (Anthropic) no longer reads only `content[0]`** — when
+  adaptive thinking engages, the model's response leads with a `thinking`
+  content block, and `extractText` previously read it as `""`, silently
+  degrading `classify()` to `needs-reasoning`/confidence 0 and making
+  `classifyRaw()` return `""` instead of the model's text. `extractText` now
+  scans for the first `text` content block regardless of position. When the
+  response stops at `stop_reason: "max_tokens"` with no text block at all,
+  `classifyRaw()` now throws instead of returning `""`, surfacing the
+  truncation as an explicit failure; `classify()`'s existing
+  `needs-reasoning`/confidence-0 sentinel behaviour is unchanged (the
+  dedicated error/failed-field failure channel for `classify()` is added by
+  the companion issue #239). (#238, semver-minor)
+- **`HttpTriageProvider.classify()` no longer swallows failures into total
+  silence** — every failure path (non-OK HTTP, thrown network/abort error,
+  missing response body, and the `max_tokens`-truncation throw added by
+  #238) now sets a new optional `failureReason` string on the returned
+  `ClassificationResult`. The `needs-reasoning`/confidence-0 sentinel is
+  unchanged (ruling D1 option B); `classify()` still never throws. The
+  cheap-model stage router now checks `failureReason`: it calls `onError`
+  once per failed item and marks `StageResult.errored = true` for the
+  stage, and the cost calculator charges zero cost instead of falling back
+  to `DEFAULT_COST_ESTIMATE` for a result that carries it. A `max_tokens`
+  truncation is the one failure that still burned real tokens: `classify()`
+  now reads the response's usage block before the truncation throw can
+  fire, so a truncated-but-billed call is charged the measured tokens
+  instead of zero, while a failure with no response body at all (404,
+  network error, abort) still has no usage and stays zero-cost. Additive
+  and non-breaking. (#239, semver-minor)
 - **Stage config typos and non-numeric budget `at` strings now fail at
   config load instead of silently no-oping.** `src/config/schema.ts`'s stage
   schema previously stripped unknown keys silently, so a misspelled
