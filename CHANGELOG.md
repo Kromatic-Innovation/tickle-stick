@@ -109,6 +109,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "urgent" (e.g. ordinary marketing mail) now always reaches the expensive
   tier even when the model genuinely says `routine`; no config key is
   provided to opt out. (#247, semver-minor)
+  to match. (#241, semver-minor)
+- **Spend was recorded twice per classified item — once per item, once per
+  stage** — the cheap-tier stage emitted a costed telemetry event for every
+  classified item, and `Pipeline.run()` then emitted a second, stage-level
+  aggregate event carrying the *same* dollars. Both reached budget storage
+  (via `BudgetManager.record()`) and `MetricsCollector`, so recorded spend
+  was 2.00x the real estimate, budget caps tripped at half the configured
+  spend, and `MetricsCollector`'s `totalProcessed` counted stage-rollup
+  events as if they were items. Fixed by making the stage-aggregate event
+  cost-free (`costEstimate: 0`, no sentinel) and giving `TelemetryEvent` a
+  new **required** `granularity: "call" | "stage"` field so storage and
+  metrics can tell a per-item costed event from a per-stage rollup;
+  `MetricsCollector` now only counts `"call"` events, so `totalProcessed`
+  equals the classified-item count. `tier` itself is unchanged (stage index
+  on aggregates, the literal `1` on per-item cheap-tier events) — sinks
+  that key on it are unaffected. `TelemetryEvent` also gains optional
+  fields named to match the fleet usage ledger — `costBasis`,
+  `cacheReadInputTokens`, `cacheCreationInputTokens`, `authMode`,
+  `account`, `callSite` — and `costEstimate` is now documented as USD.
+  `costBasis: "estimated"` is now set on **every** cost-bearing event —
+  both the token-derived cost (rates × tokens is still a tickle-stick
+  computation, not a provider-billed amount) and the `DEFAULT_COST_ESTIMATE`
+  flat-rate fallback — and left unset on a zero-cost failure event, where
+  nothing was computed. A new `costSource: "token-usage" | "default-estimate"`
+  return value from `classifyItem` is the actual discriminator for the
+  flat-fallback case (since `costBasis` no longer tells the two apart):
+  only a `costSource: "default-estimate"` event gets the
+  `metadata.reason: "default-cost-estimate"` visible-reason note, so the
+  fallback is never a silent default.
+  **Breaking:** `TelemetryEvent.granularity` is a new **required** field —
+  code that constructs a `TelemetryEvent` object literal directly (a
+  hand-built replay/test fixture, for example) needs updating; a
+  `StorageAdapter.writeEvent(event)` implementation that only *reads*
+  fields off the `event` it's handed needs no change. The other new fields
+  above are optional and non-breaking. **Behaviour change for
+  `StorageAdapter` implementers:** dropping the aggregate cost row means
+  fewer cost-bearing rows are written per run — a per-stage latency/cost
+  consumer that read the aggregate row for its cost now sees only the
+  per-item rows. `getSpendSince`'s unit (USD) and semantics (sum of
+  `costEstimate` since a given ISO timestamp) are unchanged. **A `SUM`
+  over rows already written by a pre-fix version still double-counts**
+  until those rows are pruned — this change does not rewrite or backfill
+  stored history. (#254, semver-minor)
 
 ## [0.6.7] — 2026-10-23
 

@@ -190,6 +190,13 @@ export class Pipeline {
       totalCost += stageResult.costEstimate;
       stageResults.push(stageResult);
 
+      // Stage-aggregate event: granularity "stage", always cost-free. The
+      // real per-stage dollars were already recorded by the per-item "call"
+      // events emitted inside runCheapModel (one per classified item) —
+      // emitting the same dollars again here double-counted every costed
+      // event into budget storage and the metrics collector (tickle-stick#254).
+      // `stageResult.costEstimate` itself is untouched; it still feeds
+      // `totalCost` below and PipelineResult.costEstimate.
       this.emit({
         pipeline: this.name,
         tier: stageResults.length - 1,
@@ -202,7 +209,9 @@ export class Pipeline {
                 : "empty"
             : stage.name,
         latencyMs: stageResult.latencyMs,
-        costEstimate: stageResult.costEstimate,
+        costEstimate: 0,
+        granularity: "stage",
+        callSite: "pipeline:stage",
       });
 
       if (stage.postHook) {
@@ -253,6 +262,7 @@ export class Pipeline {
       tier: event.tier,
       costEstimate: event.costEstimate,
       latencyMs: event.latencyMs,
+      granularity: event.granularity,
     });
     if (this.logger) {
       this.logger(event);

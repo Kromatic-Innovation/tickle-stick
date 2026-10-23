@@ -229,6 +229,7 @@ export class StageRouter {
       action: opts.action,
       latencyMs: 0,
       costEstimate: 0,
+      granularity: "stage",
       metadata: { reason: "budget", stage: stage.name, ...opts.metadata },
     });
     this.onError?.(stage.name, new Error(opts.message), "stage");
@@ -316,6 +317,8 @@ export class StageRouter {
           provider,
           model,
           failureReason,
+          costBasis,
+          costSource,
         } = await classifyItem(item, stage, this.provider);
         classified.push(ci);
         result.costEstimate += costEstimate;
@@ -330,6 +333,10 @@ export class StageRouter {
           this.onError?.(stage.name, new Error(failureReason), "stage");
         }
 
+        // The sole cost-bearing event per classified item (granularity
+        // "call"). The stage-aggregate event emitted once per stage in
+        // Pipeline.run() is cost-free so storage/metrics see each dollar
+        // exactly once (tickle-stick#254).
         this.emit({
           pipeline: this.pipelineName,
           itemId: ci.id,
@@ -339,10 +346,20 @@ export class StageRouter {
           latencyMs,
           costEstimate,
           confidence: ci.confidence,
+          granularity: "call",
+          callSite: stage.name,
           provider,
           model,
           tokensIn,
           tokensOut,
+          costBasis,
+          // `costBasis` is "estimated" for BOTH cost-bearing paths (token-
+          // derived and flat-fallback), so it can no longer discriminate
+          // which one fired — `costSource` is the dedicated signal for
+          // that (tickle-stick#254, AC4).
+          ...(costSource === "default-estimate"
+            ? { metadata: { reason: "default-cost-estimate" } }
+            : {}),
         });
       } catch (err) {
         // Classification failed → escalate to needs-reasoning.

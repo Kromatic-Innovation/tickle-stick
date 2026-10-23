@@ -66,6 +66,26 @@ export async function classifyItem(
   provider?: string;
   model?: string;
   failureReason?: string;
+  /**
+   * "estimated" whenever `costEstimate` is a tickle-stick-computed dollar
+   * amount — whether derived from the provider's reported token usage
+   * (rates × tokens) or the flat `DEFAULT_COST_ESTIMATE` fallback. Neither
+   * is a provider-billed amount, so downstream readers that reprice from
+   * `cwc/docs/model-pricing.json` need every computed dollar labelled,
+   * not just the flat-rate one (tickle-stick#254, AC3). Left `undefined`
+   * for the zero-cost `failureReason` case: nothing was computed, so
+   * there is no basis to report.
+   */
+  costBasis?: "estimated";
+  /**
+   * Which cost path actually fired — distinct from `costBasis`, which is
+   * "estimated" for both paths. `stage-router.ts` uses this (not
+   * `costBasis`) to decide whether to attach the
+   * `metadata: { reason: "default-cost-estimate" }` visible-reason note
+   * (tickle-stick#254, AC4): once `costBasis` stopped discriminating
+   * between the two paths, something else had to.
+   */
+  costSource?: "token-usage" | "default-estimate";
 }> {
   const start = performance.now();
 
@@ -100,12 +120,18 @@ export async function classifyItem(
   // genuinely returning low-confidence output — charge zero cost instead of
   // falling back to DEFAULT_COST_ESTIMATE for work that produced nothing.
   let costEstimate = 0;
+  let costBasis: "estimated" | undefined;
+  let costSource: "token-usage" | "default-estimate" | undefined;
   if (result.tokenUsage) {
     costEstimate =
       result.tokenUsage.input * inputRate +
       result.tokenUsage.output * outputRate;
+    costBasis = "estimated";
+    costSource = "token-usage";
   } else if (!result.failureReason) {
     costEstimate = config.defaultCostEstimate ?? DEFAULT_COST_ESTIMATE;
+    costBasis = "estimated";
+    costSource = "default-estimate";
   }
 
   // Below confidence threshold → escalate to reasoning
@@ -158,5 +184,7 @@ export async function classifyItem(
     provider: result.provider,
     model: result.model,
     failureReason: result.failureReason,
+    costBasis,
+    costSource,
   };
 }
