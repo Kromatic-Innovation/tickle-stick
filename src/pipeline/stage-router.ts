@@ -37,6 +37,14 @@ export interface StageRouterOptions {
  * concerns. See `pre-1.0` plan in tickle-stick#34 for the rationale.
  */
 export class StageRouter {
+  /**
+   * Cadence (in items) for re-checking the budget cap against storage
+   * inside the cheap-tier loop. Bounds a single stage's overshoot to this
+   * many items instead of its whole item count, without hitting storage
+   * once per item (tickle-stick#240).
+   */
+  private static readonly BUDGET_RECHECK_INTERVAL = 10;
+
   private readonly pipelineName: string;
   private readonly provider: TriageProvider | null;
   private readonly stageCallbacks: ExpensiveStageProvider;
@@ -198,7 +206,35 @@ export class StageRouter {
     if (!this.provider || !budgetOk || !stage.systemPrompt) return;
 
     const classified: ClassifiedItem[] = [];
-    for (const item of inputItems) {
+    for (let i = 0; i < inputItems.length; i++) {
+      // Per-item (cached, cheap) cap re-check: stop as soon as a prior
+      // iteration's costed event tripped the cap, instead of running the
+      // whole remaining batch at the stage's whole item count
+      // (tickle-stick#240, AC3).
+      if (this.budgetManager?.isBudgetExceeded()) break;
+
+      // On a bounded cadence, refresh the cached flag against storage so
+      // a cap trip that hasn't produced a costed event yet (e.g. another
+      // stage or process spent the budget) is still caught within this
+      // loop, without a storage hit on every single item.
+      if (
+        this.budgetManager &&
+        i > 0 &&
+        i % StageRouter.BUDGET_RECHECK_INTERVAL === 0
+      ) {
+        try {
+          await this.budgetManager.refresh();
+        } catch (err) {
+          // A refresh failure here is bookkeeping-only; it must not abort
+          // the loop and discard items already classified in this stage
+          // (tickle-stick#240, Finding 1). Report it and fall through on
+          // the last cached isBudgetExceeded() value below.
+          this.onError?.(stage.name, err, "stage");
+        }
+        if (this.budgetManager.isBudgetExceeded()) break;
+      }
+
+      const item = inputItems[i];
       try {
         const {
           classified: ci,
