@@ -668,25 +668,51 @@ describe("Shipped examples still load (AC5)", () => {
     expect(config.tickleStick.pipelines["demo"].stages).toHaveLength(3);
   });
 
-  it("loads every full tickleStick YAML example embedded in README.md", () => {
-    const readme = fs.readFileSync(
-      path.resolve(__dirname, "../README.md"),
-      "utf-8",
-    );
-    const yamlBlocks = [...readme.matchAll(/```yaml\n([\s\S]*?)```/g)].map(
-      (m) => m[1],
-    );
+  const readme = fs.readFileSync(
+    path.resolve(__dirname, "../README.md"),
+    "utf-8",
+  );
+  const yamlBlocks = [...readme.matchAll(/```yaml\n([\s\S]*?)```/g)].map(
+    (m) => m[1],
+  );
 
-    const fullConfigBlocks = yamlBlocks.filter((block) =>
-      /^\s*tickleStick:/.test(block),
-    );
+  // Tolerates a leading `# tickle-stick.yaml`-style comment (or blank
+  // lines) before the `tickleStick:` root key — without this, a fence
+  // like:
+  //   # tickle-stick.yaml
+  //   tickleStick:
+  // fails to match and is silently excluded from validation, which is
+  // exactly the class of silent no-op this issue is about (sentry[bot]
+  // finding on tickle-stick#243's first version of this test: the
+  // anchored `/^\s*tickleStick:/` filter matched only 1 of the README's 2
+  // full-config fences, and the excluded one was the main, most-copied
+  // example).
+  const fullConfigBlocks = yamlBlocks.filter((block) =>
+    /^\s*(?:#[^\n]*\n\s*)*tickleStick:/.test(block),
+  );
 
-    // Guard against the extraction itself silently finding nothing (e.g. if
-    // the README's code-fence language tag ever changes).
+  // Independent cross-check so the filter above can never again silently
+  // under-match without the test noticing: count fences that merely
+  // *contain* `tickleStick:` anywhere, by a dumb substring search, and
+  // require the filtered count to equal it. A future README edit that
+  // adds a full-config example the filter fails to recognize now fails
+  // this test loudly instead of quietly validating fewer examples than it
+  // claims to.
+  const blocksContainingRootKey = yamlBlocks.filter((block) =>
+    block.includes("tickleStick:"),
+  );
+
+  it("filter matches every README fence that contains tickleStick:, not fewer", () => {
+    expect(fullConfigBlocks.length).toBe(blocksContainingRootKey.length);
+    // Guard against the extraction itself silently finding nothing (e.g.
+    // if the README's code-fence language tag ever changes).
     expect(fullConfigBlocks.length).toBeGreaterThan(0);
-
-    for (const block of fullConfigBlocks) {
-      expect(() => loadConfigFromString(block)).not.toThrow();
-    }
   });
+
+  it.each(fullConfigBlocks.map((block, i) => [i, block] as const))(
+    "loads full tickleStick YAML example #%i embedded in README.md",
+    (_i, block) => {
+      expect(() => loadConfigFromString(block)).not.toThrow();
+    },
+  );
 });
