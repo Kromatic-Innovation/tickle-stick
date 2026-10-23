@@ -38,10 +38,19 @@ export function interpolatePrompt(
   const allItems = applyInputFilter("all", context);
   const allItemsJson = JSON.stringify(allItems.map(projectItem), null, 2);
 
-  // replaceAll (not replace) so templates may reference a placeholder more
-  // than once; function replacements avoid `$`-pattern interpretation of the
-  // JSON payloads (which can legitimately contain `$`).
-  return template
-    .replaceAll("{{all_items}}", () => allItemsJson)
-    .replaceAll("{{items}}", () => itemsJson);
+  // Single pass over a regex matching only the known placeholders, with a
+  // replacement callback. This must NOT be two chained replaceAll calls:
+  // running them sequentially re-scans the text inserted by the first
+  // replacement for the second placeholder, so an item whose own text
+  // contains the literal "{{items}}" or "{{all_items}}" would have that
+  // literal text expanded a second time once it's spliced into the
+  // template. One pass over the *original* template means text injected
+  // for a placeholder is never itself re-scanned for placeholders.
+  // Unknown placeholders are left untouched because the regex only matches
+  // these two names. The callback form (not a `$`-pattern string) avoids
+  // `$`-pattern interpretation of the JSON payloads, which can legitimately
+  // contain `$`.
+  return template.replace(/\{\{(all_items|items)\}\}/g, (_match, name: string) =>
+    name === "all_items" ? allItemsJson : itemsJson,
+  );
 }
