@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`HttpTriageProvider` (Anthropic) no longer reads only `content[0]`** — when
+  adaptive thinking engages, the model's response leads with a `thinking`
+  content block, and `extractText` previously read it as `""`, silently
+  degrading `classify()` to `needs-reasoning`/confidence 0 and making
+  `classifyRaw()` return `""` instead of the model's text. `extractText` now
+  scans for the first `text` content block regardless of position. When the
+  response stops at `stop_reason: "max_tokens"` with no text block at all,
+  `classifyRaw()` now throws instead of returning `""`, surfacing the
+  truncation as an explicit failure; `classify()`'s existing
+  `needs-reasoning`/confidence-0 sentinel behaviour is unchanged (the
+  dedicated error/failed-field failure channel for `classify()` is added by
+  the companion issue #239). (#238, semver-minor)
+
 ## [0.6.7] — 2026-10-23
 
 Maintenance release. No consumer-visible or breaking changes — `src/` is
