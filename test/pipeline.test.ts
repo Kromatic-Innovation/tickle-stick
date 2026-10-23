@@ -1,7 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { Pipeline } from "../src/pipeline.js";
+import { HttpTriageProvider } from "../src/providers/http-triage-provider.js";
 import type { PipelineConfigEntry } from "../src/config/schema.js";
-import type { Classification, WorkItem, TriageProvider } from "../src/types.js";
+import type {
+  Classification,
+  WorkItem,
+  TriageProvider,
+  StorageAdapter,
+} from "../src/types.js";
 
 function makeConfig(
   stages: PipelineConfigEntry["stages"],
@@ -466,6 +472,96 @@ describe("Pipeline", () => {
     expect((err as Error).message).toBeTruthy();
   });
 
+  it("discharges probe P1: a 404 HttpTriageProvider surfaces onError per item, marks the stage errored, and charges zero cost (tickle-stick#239)", async () => {
+    // Probe P1 from the tickle-stick#239 audit ran a real local server
+    // returning 404; that corpus is operator-local and unreachable from
+    // this container, so this re-runs the same shape against a mocked
+    // fetch returning 404 — distinguishing check per the issue: before the
+    // fix, onError calls stayed 0 and errored stayed undefined even on a
+    // 404.
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve({}) });
+
+    const onError = vi.fn();
+    const provider = new HttpTriageProvider({
+      apiKey: "test-key",
+      model: "gpt-4o-mini",
+      provider: "openai",
+    });
+
+    const pipeline = new Pipeline({
+      name: "probe-p1",
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "node",
+          args: [
+            "-e",
+            `process.stdout.write(${JSON.stringify(
+              JSON.stringify(
+                sampleItems.map((i) => ({
+                  ...i,
+                  timestamp: i.timestamp.toISOString(),
+                })),
+              ),
+            )})`,
+          ],
+          timeout: 5000,
+        },
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ]),
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: provider,
+      onError,
+    });
+
+    try {
+      const result = await pipeline.run();
+
+      const classifyStage = result.stageResults.find(
+        (s) => s.name === "classify",
+      );
+      const items = (classifyStage?.items ?? []) as Array<{
+        classification?: string;
+        confidence?: number;
+      }>;
+
+      // Observed: both items still degrade to the needs-reasoning sentinel.
+      expect(items).toHaveLength(2);
+      expect(
+        items.every(
+          (i) => i.classification === "needs-reasoning" && i.confidence === 0,
+        ),
+      ).toBe(true);
+
+      // Observed: onError fires at least once per failed item (2 calls).
+      expect(onError.mock.calls.length).toBeGreaterThanOrEqual(2);
+      expect(onError).toHaveBeenCalledWith(
+        "classify",
+        expect.any(Error),
+        "stage",
+      );
+
+      // Observed: the stage is marked errored.
+      expect(classifyStage?.errored).toBe(true);
+
+      // Observed: the failed calls are charged zero cost.
+      expect(classifyStage?.costEstimate).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("emits TelemetryEvents carrying provider/model/tokensIn/tokensOut from the cheap-model stage", async () => {
     const provider: TriageProvider = {
       name: "mock-anthropic",
@@ -595,5 +691,97 @@ describe("Pipeline", () => {
     expect(reasonStage?.output).toBe("Provider routed result");
     // Reference unused variable to satisfy lint:
     expect(pipeline).toBeDefined();
+  });
+
+  function makeThrowingStorage(): StorageAdapter {
+    return {
+      writeEvent: vi.fn().mockRejectedValue(new Error("storage boom")),
+      getSpendSince: vi.fn().mockResolvedValue(0),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+  }
+
+  function makeBudgetPipeline(
+    onError: (stage: string, err: unknown, phase: "stage" | "post-hook") => void,
+    storage: StorageAdapter,
+  ) {
+    return new Pipeline({
+      name: "budget-record-test",
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "echo",
+          args: [
+            JSON.stringify(
+              sampleItems.map((i) => ({
+                ...i,
+                timestamp: i.timestamp.toISOString(),
+              })),
+            ),
+          ],
+          timeout: 5000,
+        },
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ]),
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(),
+      storage,
+      budgetConfig: { alerts: [], retentionDays: 30 },
+      onError,
+    });
+  }
+
+  it("routes a rejected budgetManager.record() (throwing storage adapter) to onError (tickle-stick#246)", async () => {
+    const onError = vi.fn();
+    const pipeline = makeBudgetPipeline(onError, makeThrowingStorage());
+
+    await pipeline.run();
+    // budgetManager.record() is fire-and-forget from emit(); flush
+    // microtasks so its rejection handler has run before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onError).toHaveBeenCalledWith(
+      "budget-record",
+      expect.any(Error),
+      "post-hook",
+    );
+  });
+
+  it("does not produce an unhandled rejection when onError itself throws for a budget-record failure (tickle-stick#246)", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const throwingOnError = vi.fn(() => {
+        throw new Error("onError boom");
+      });
+      const pipeline = makeBudgetPipeline(
+        throwingOnError,
+        makeThrowingStorage(),
+      );
+
+      await expect(pipeline.run()).resolves.toBeDefined();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(throwingOnError).toHaveBeenCalledWith(
+        "budget-record",
+        expect.any(Error),
+        "post-hook",
+      );
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
   });
 });

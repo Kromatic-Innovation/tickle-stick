@@ -26,6 +26,7 @@ export async function classifyItem(
   tokensOut?: number;
   provider?: string;
   model?: string;
+  failureReason?: string;
 }> {
   const start = performance.now();
 
@@ -64,11 +65,17 @@ export async function classifyItem(
 
   const inputRate = config.costPerInputToken ?? DEFAULT_COST_PER_INPUT_TOKEN;
   const outputRate = config.costPerOutputToken ?? DEFAULT_COST_PER_OUTPUT_TOKEN;
-  let costEstimate = config.defaultCostEstimate ?? DEFAULT_COST_ESTIMATE;
+  // A result carrying failureReason means the call itself failed (see
+  // HttpTriageProvider.classify, tickle-stick#239) rather than the model
+  // genuinely returning low-confidence output — charge zero cost instead of
+  // falling back to DEFAULT_COST_ESTIMATE for work that produced nothing.
+  let costEstimate = 0;
   if (result.tokenUsage) {
     costEstimate =
       result.tokenUsage.input * inputRate +
       result.tokenUsage.output * outputRate;
+  } else if (!result.failureReason) {
+    costEstimate = config.defaultCostEstimate ?? DEFAULT_COST_ESTIMATE;
   }
 
   // Below confidence threshold → escalate to reasoning
@@ -93,5 +100,6 @@ export async function classifyItem(
     tokensOut: result.tokenUsage?.output,
     provider: result.provider,
     model: result.model,
+    failureReason: result.failureReason,
   };
 }
