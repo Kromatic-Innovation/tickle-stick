@@ -76,26 +76,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/pipeline.ts` / `src/pipeline/stage-router.ts` are a separate,
   complementary check (tickle-stick#241) — this change is config-load-time
   only.
-- **Cheap-tier prompt shape fenced, and classifier-response parsing
-  hardened, against item-text prompt injection** — `tier1-triage.ts` now
-  wraps the item text (`summary`/`body`) in a `--- begin item text
-  (untrusted) ---` / `--- end item text (untrusted) ---` block; the
-  `[type: ...]`, `[labels: ...]`, and `[hasOwnerComment: true]` prefix
-  lines, and their order, are unchanged. The delimiters are deliberately
-  brace-free, so a consumer that locates its payload by scanning for the
-  first `{` and tracking brace depth (how the known consumer does it) is
-  unaffected — checked by a test that ports that exact scan and confirms
-  it still recovers an unchanged payload from the new prompt shape.
-  `parse.ts` is also stricter: a confidence value outside the 0..1 range
-  or non-finite is now rejected to `needs-reasoning`/confidence 0 instead
-  of being accepted unclamped; JSON extraction is now a balanced-brace
-  scan instead of a greedy first-`{`-to-last-`}` regex, so a valid JSON
-  object followed by trailing text now parses correctly where the greedy
-  match previously failed it; and a `routine` verdict is escalated to
-  `needs-reasoning`/confidence 0 when text *outside* the parsed JSON
-  object mentions urgency — a response consisting of only the JSON object
-  can never trip this, and the check is deliberately fail-open (e.g.
-  trailing prose saying "not urgent" still escalates). (#247, semver-minor)
+- **Cheap-tier prompt shape fenced, classifier-response parsing hardened,
+  and a non-skippable urgency escalation added, against item-text prompt
+  injection** — `tier1-triage.ts` now wraps the item text (`summary`/
+  `body`) in a `--- begin item text (untrusted) ---` / `--- end item text
+  (untrusted) ---` block; the `[type: ...]`, `[labels: ...]`, and
+  `[hasOwnerComment: true]` prefix lines, and their order, are unchanged.
+  The delimiters are deliberately brace-free, so a consumer that locates
+  its payload by scanning for the first `{` and tracking brace depth (how
+  the known consumer does it) is unaffected — checked by a test that ports
+  that exact scan and confirms it still recovers an unchanged payload from
+  the new prompt shape. A literal occurrence of either fence marker inside
+  the item's own `summary`/`body` is neutralised (a deterministic string
+  substitution, not a per-request nonce) before fencing, so an item can no
+  longer forge or early-close the fence. `parse.ts` is stricter in two
+  ways that are purely about the model's output: a confidence value
+  outside the 0..1 range or non-finite is now rejected to
+  `needs-reasoning`/confidence 0 instead of being accepted unclamped, and
+  JSON extraction is now a balanced-brace scan instead of a greedy
+  first-`{`-to-last-`}` regex, so a valid JSON object followed by trailing
+  text now parses correctly where the greedy match previously failed it.
+  Separately, `classifyItem` now escalates a `routine` verdict to
+  `needs-reasoning` whenever the **item's own** `summary`/`body` mentions
+  urgency, regardless of the model's confidence — this is the
+  non-skippable AC4 guard, and it deliberately inspects the input rather
+  than the model's output: the model's response is exactly what a
+  successful injection controls, so a response consisting of only
+  `{"classification":"routine","confidence":1}` (no echo of the prompt at
+  all) still cannot suppress it. Applied strictly after the existing
+  confidence-threshold check and only ever escalates, never downgrades.
+  Deliberately fail-open: an item whose own text merely uses the word
+  "urgent" (e.g. ordinary marketing mail) now always reaches the expensive
+  tier even when the model genuinely says `routine`; no config key is
+  provided to opt out. (#247, semver-minor)
 
 ## [0.6.7] — 2026-10-23
 

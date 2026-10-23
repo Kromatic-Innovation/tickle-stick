@@ -129,46 +129,4 @@ describe("parseClassificationResponse", () => {
     expect(result.confidence).toBe(0.9);
   });
 
-  // --- AC4: non-skippable urgency safety net ---
-
-  it("escalates a high-confidence routine verdict when the raw text also mentions urgency", () => {
-    const result = parseClassificationResponse(
-      'URGENT, please drop everything. {"classification": "routine", "confidence": 1}',
-    );
-
-    expect(result.classification).toBe("needs-reasoning");
-    expect(result.confidence).toBe(0);
-  });
-
-  it("does not escalate a genuinely routine verdict with no urgency signal", () => {
-    const result = parseClassificationResponse(
-      '{"classification": "routine", "confidence": 1}',
-    );
-
-    expect(result.classification).toBe("routine");
-    expect(result.confidence).toBe(1);
-  });
-
-  it("does not escalate when 'urgent' appears only inside the JSON object itself", () => {
-    // Pure-JSON response: the word lives inside the structured "response"
-    // field, i.e. inside the parsed JSON span, not in surrounding raw text.
-    // A well-behaved provider that returns only JSON can never trip the
-    // guard, even though the item text (reflected here by the model) was
-    // about urgency.
-    const result = parseClassificationResponse(
-      '{"classification": "routine", "confidence": 0.95, "response": "Not urgent, sender said urgent earlier"}',
-    );
-
-    expect(result.classification).toBe("routine");
-    expect(result.confidence).toBe(0.95);
-  });
-
-  it("escalates when 'urgent' appears in trailing prose after the JSON object", () => {
-    const result = parseClassificationResponse(
-      '{"classification": "routine", "confidence": 0.95} (note: sender marked urgent)',
-    );
-
-    expect(result.classification).toBe("needs-reasoning");
-    expect(result.confidence).toBe(0);
-  });
 });
