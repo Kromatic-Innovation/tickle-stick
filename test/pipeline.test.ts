@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { Pipeline } from "../src/pipeline.js";
 import type { PipelineConfigEntry } from "../src/config/schema.js";
-import type { Classification, WorkItem, TriageProvider } from "../src/types.js";
+import type {
+  Classification,
+  WorkItem,
+  TriageProvider,
+  StorageAdapter,
+} from "../src/types.js";
 
 function makeConfig(
   stages: PipelineConfigEntry["stages"],
@@ -595,5 +600,97 @@ describe("Pipeline", () => {
     expect(reasonStage?.output).toBe("Provider routed result");
     // Reference unused variable to satisfy lint:
     expect(pipeline).toBeDefined();
+  });
+
+  function makeThrowingStorage(): StorageAdapter {
+    return {
+      writeEvent: vi.fn().mockRejectedValue(new Error("storage boom")),
+      getSpendSince: vi.fn().mockResolvedValue(0),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+  }
+
+  function makeBudgetPipeline(
+    onError: (stage: string, err: unknown, phase: "stage" | "post-hook") => void,
+    storage: StorageAdapter,
+  ) {
+    return new Pipeline({
+      name: "budget-record-test",
+      config: makeConfig([
+        {
+          name: "gather",
+          type: "script",
+          command: "echo",
+          args: [
+            JSON.stringify(
+              sampleItems.map((i) => ({
+                ...i,
+                timestamp: i.timestamp.toISOString(),
+              })),
+            ),
+          ],
+          timeout: 5000,
+        },
+        {
+          name: "classify",
+          type: "model",
+          provider: "cheap",
+          systemPrompt: "Classify",
+          confidenceThreshold: 0.7,
+          timeout: 30000,
+        },
+      ]),
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(),
+      storage,
+      budgetConfig: { alerts: [], retentionDays: 30 },
+      onError,
+    });
+  }
+
+  it("routes a rejected budgetManager.record() (throwing storage adapter) to onError (tickle-stick#246)", async () => {
+    const onError = vi.fn();
+    const pipeline = makeBudgetPipeline(onError, makeThrowingStorage());
+
+    await pipeline.run();
+    // budgetManager.record() is fire-and-forget from emit(); flush
+    // microtasks so its rejection handler has run before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onError).toHaveBeenCalledWith(
+      "budget-record",
+      expect.any(Error),
+      "post-hook",
+    );
+  });
+
+  it("does not produce an unhandled rejection when onError itself throws for a budget-record failure (tickle-stick#246)", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const throwingOnError = vi.fn(() => {
+        throw new Error("onError boom");
+      });
+      const pipeline = makeBudgetPipeline(
+        throwingOnError,
+        makeThrowingStorage(),
+      );
+
+      await expect(pipeline.run()).resolves.toBeDefined();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(throwingOnError).toHaveBeenCalledWith(
+        "budget-record",
+        expect.any(Error),
+        "post-hook",
+      );
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
   });
 });
