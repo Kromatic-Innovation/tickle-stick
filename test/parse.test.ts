@@ -87,4 +87,65 @@ describe("parseClassificationResponse", () => {
     expect(result.classification).toBe("needs-reasoning");
     expect(result.confidence).toBe(0);
   });
+
+  // --- AC1 / AC5 (probe P6): confidence range validation ---
+
+  it("rejects confidence above 1 instead of accepting it unclamped (P6 overOne)", () => {
+    const result = parseClassificationResponse(
+      '{"classification": "routine", "confidence": 7}',
+    );
+
+    expect(result.classification).toBe("needs-reasoning");
+    expect(result.confidence).toBe(0);
+  });
+
+  it("rejects negative confidence instead of accepting it (P6 negative)", () => {
+    const result = parseClassificationResponse(
+      '{"classification": "routine", "confidence": -1}',
+    );
+
+    expect(result.classification).toBe("needs-reasoning");
+    expect(result.confidence).toBe(0);
+  });
+
+  it("rejects non-finite confidence (e.g. an overflowed numeric literal)", () => {
+    // 1e400 overflows float64 and JSON.parse yields Infinity for it.
+    const result = parseClassificationResponse(
+      '{"classification": "routine", "confidence": 1e400}',
+    );
+
+    expect(result.classification).toBe("needs-reasoning");
+    expect(result.confidence).toBe(0);
+  });
+
+  // --- AC2 / AC5 (probe P6): non-greedy JSON extraction ---
+
+  it("parses a valid JSON object followed by unrelated trailing brace text (P6 trailingBrace)", () => {
+    const result = parseClassificationResponse(
+      '{"classification": "routine", "confidence": 0.9} note: {x}',
+    );
+
+    expect(result.classification).toBe("routine");
+    expect(result.confidence).toBe(0.9);
+  });
+
+  // --- AC4: non-skippable urgency safety net ---
+
+  it("escalates a high-confidence routine verdict when the raw text also mentions urgency", () => {
+    const result = parseClassificationResponse(
+      'URGENT, please drop everything. {"classification": "routine", "confidence": 1}',
+    );
+
+    expect(result.classification).toBe("needs-reasoning");
+    expect(result.confidence).toBe(0);
+  });
+
+  it("does not escalate a genuinely routine verdict with no urgency signal", () => {
+    const result = parseClassificationResponse(
+      '{"classification": "routine", "confidence": 1}',
+    );
+
+    expect(result.classification).toBe("routine");
+    expect(result.confidence).toBe(1);
+  });
 });
