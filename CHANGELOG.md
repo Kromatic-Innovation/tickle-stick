@@ -94,10 +94,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that key on it are unaffected. `TelemetryEvent` also gains optional
   fields named to match the fleet usage ledger — `costBasis`,
   `cacheReadInputTokens`, `cacheCreationInputTokens`, `authMode`,
-  `account`, `callSite` — and `costEstimate` is now documented as USD. The
-  `DEFAULT_COST_ESTIMATE` flat-rate fallback in `tier1-triage.ts` now sets
-  `costBasis: "estimated"` and a `metadata.reason: "default-cost-estimate"`
-  on its event instead of being a silent default.
+  `account`, `callSite` — and `costEstimate` is now documented as USD.
+  `costBasis: "estimated"` is now set on **every** cost-bearing event —
+  both the token-derived cost (rates × tokens is still a tickle-stick
+  computation, not a provider-billed amount) and the `DEFAULT_COST_ESTIMATE`
+  flat-rate fallback — and left unset on a zero-cost failure event, where
+  nothing was computed. A new `costSource: "token-usage" | "default-estimate"`
+  return value from `classifyItem` is the actual discriminator for the
+  flat-fallback case (since `costBasis` no longer tells the two apart):
+  only a `costSource: "default-estimate"` event gets the
+  `metadata.reason: "default-cost-estimate"` visible-reason note, so the
+  fallback is never a silent default.
   **Breaking:** `TelemetryEvent.granularity` is a new **required** field —
   code that constructs a `TelemetryEvent` object literal directly (a
   hand-built replay/test fixture, for example) needs updating; a

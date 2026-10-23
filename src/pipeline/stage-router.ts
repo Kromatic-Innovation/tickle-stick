@@ -318,6 +318,7 @@ export class StageRouter {
           model,
           failureReason,
           costBasis,
+          costSource,
         } = await classifyItem(item, stage, this.provider);
         classified.push(ci);
         result.costEstimate += costEstimate;
@@ -352,7 +353,11 @@ export class StageRouter {
           tokensIn,
           tokensOut,
           costBasis,
-          ...(costBasis === "estimated"
+          // `costBasis` is "estimated" for BOTH cost-bearing paths (token-
+          // derived and flat-fallback), so it can no longer discriminate
+          // which one fired — `costSource` is the dedicated signal for
+          // that (tickle-stick#254, AC4).
+          ...(costSource === "default-estimate"
             ? { metadata: { reason: "default-cost-estimate" } }
             : {}),
         });

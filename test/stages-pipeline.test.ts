@@ -1097,6 +1097,16 @@ describe("Spend recorded once per item, not once per stage too (tickle-stick#254
     expect(callEvents).toHaveLength(sampleItems.length);
     for (const e of callEvents) {
       expect(e.costEstimate as number).toBeGreaterThan(0);
+      // Token-derived cost is still "estimated" (rates × tokens is a
+      // tickle-stick computation, not a provider-billed amount) — but it
+      // did NOT go through the flat DEFAULT_COST_ESTIMATE fallback, so no
+      // "default-cost-estimate" visible-reason note is attached
+      // (tickle-stick#254, AC3/AC4: costBasis no longer discriminates the
+      // two paths — costSource does, and only drives the metadata note).
+      expect(e.costBasis).toBe("estimated");
+      expect(
+        (e.metadata as Record<string, unknown> | undefined)?.reason,
+      ).toBeUndefined();
     }
 
     // Every stage-level event (the "gather" rollup and the "classify"
