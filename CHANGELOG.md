@@ -49,7 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of silently skipping at runtime — this ties to the
   strict-schema validation in #243 but is enforced here at construction
   time regardless. The README's budget pass-through sentence is rewritten
-  to match. (#241, semver-minor)
+  to match. A cheap-model stage that's already mid-batch when the cap
+  trips now reports the cut the same way instead of silently exiting the
+  loop: items already classified are still retained, but one telemetry
+  event (naming `"budget"` as the reason, with classified/skipped counts)
+  and one `onError` call now fire for the stage. (#241, semver-minor)
 
 ## [0.6.7] — 2026-10-23
 
