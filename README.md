@@ -336,6 +336,12 @@ const pipeline = new Pipeline({
   bare `catch`; it now fires `onError` with `phase: "stage"` so a dead
   cheap-model tier is diagnosable. The item still falls back to
   `needs-reasoning` and the pipeline is otherwise unaffected.
+- **Budget-cap stage skips** _([#241](https://github.com/Kromatic-Innovation/tickle-stick/issues/241))_ —
+  when a budget cap is tripped, a model stage (cheap or expensive) is
+  skipped entirely instead of run; `onError` fires once per skipped stage
+  with `phase: "stage"`, and `StageResult.errored` is set `true` for that
+  stage. See [Budget & Alerts](#budget--alerts) for the full skip
+  behaviour.
 
 ### Inspecting failures after a run
 
@@ -382,8 +388,20 @@ tickleStick:
     retentionDays: 30
 ```
 
-When a budget cap is reached, cheap model stages are skipped — all items pass
-through to downstream stages.
+When a budget cap is reached, every model stage — cheap and expensive alike —
+is skipped for the rest of that run. Skipped items are not dropped: they stay
+in the pipeline context exactly as they arrived (unclassified), so a
+downstream callback stage with `input: "all"` still receives them — only a
+`classified:*` filter sees nothing, since those items were never classified.
+Each skip emits a telemetry event naming `"budget"` as the reason and calls
+`onError` once for that stage. If a cheap-model stage is already midway
+through its batch when the cap trips, it stops early instead of being
+skipped whole: items already classified are kept, but the cut itself is
+reported with the same `"budget"` signal — one telemetry event and one
+`onError` call, carrying how many items were classified and how many were
+left unprocessed. A missing provider or missing `systemPrompt` on a
+cheap-model stage is a different case entirely: that's a config error and
+throws at `new Pipeline(...)`, not a runtime skip.
 
 ### Storage Adapter
 
