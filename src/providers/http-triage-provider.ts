@@ -167,8 +167,23 @@ export class HttpTriageProvider implements TriageProvider {
       return first?.message?.content ?? "";
     }
     if (Array.isArray(body.content)) {
-      const first = body.content[0] as { text?: string } | undefined;
-      return first?.text ?? "";
+      // Anthropic responses can lead with a `thinking` block when adaptive
+      // thinking engages; scan for the first `text` block rather than
+      // assuming content[0] is the text. See tickle-stick#238.
+      const textBlock = body.content.find(
+        (block): block is { type: "text"; text: string } =>
+          typeof block === "object" &&
+          block !== null &&
+          (block as { type?: unknown }).type === "text" &&
+          typeof (block as { text?: unknown }).text === "string",
+      );
+      if (textBlock) return textBlock.text;
+      if (body.stop_reason === "max_tokens") {
+        throw new Error(
+          `${this.options.provider} response truncated at max_tokens with no text content block`,
+        );
+      }
+      return "";
     }
     return "";
   }

@@ -144,6 +144,7 @@ describe("HttpTriageProvider", () => {
       mockFetchResponse({
         content: [
           {
+            type: "text",
             text: '{"classification":"routine","response":"Hello!","confidence":0.95}',
           },
         ],
@@ -175,6 +176,7 @@ describe("HttpTriageProvider", () => {
       mockFetchResponse({
         content: [
           {
+            type: "text",
             text: '{"classification":"routine","response":"Hi","confidence":0.9}',
           },
         ],
@@ -185,6 +187,77 @@ describe("HttpTriageProvider", () => {
       const result = await provider.classify("hi", "Classify.");
 
       expect(result.tokenUsage).toEqual({ input: 40, output: 15 });
+    });
+  });
+
+  describe("Anthropic thinking blocks (regression for tickle-stick#238)", () => {
+    it("skips a leading thinking block and extracts the text block (probe P8)", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "reasoning about the request..." },
+          {
+            type: "text",
+            text: '{"classification":"routine","confidence":0.95}',
+          },
+        ],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 120, output_tokens: 80 },
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const result = await provider.classify("hi", "Classify.");
+      expect(result.classification).toBe("routine");
+      expect(result.confidence).toBe(0.95);
+
+      const rawProvider = makeProvider({ provider: "anthropic" });
+      const raw = await rawProvider.classifyRaw("hi", "Classify.");
+      expect(raw).toBe('{"classification":"routine","confidence":0.95}');
+    });
+
+    it("extracts the text block unchanged when text is already first", async () => {
+      mockFetchResponse({
+        content: [
+          {
+            type: "text",
+            text: '{"classification":"routine","confidence":0.95}',
+          },
+        ],
+        stop_reason: "end_turn",
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const raw = await provider.classifyRaw("hi", "Classify.");
+      expect(raw).toBe('{"classification":"routine","confidence":0.95}');
+    });
+
+    it("classifyRaw throws when stop_reason is max_tokens and no text block exists", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "still reasoning, ran out of budget" },
+        ],
+        stop_reason: "max_tokens",
+        usage: { input_tokens: 120, output_tokens: 256 },
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      await expect(provider.classifyRaw("hi", "Classify.")).rejects.toThrow(
+        /max_tokens/,
+      );
+    });
+
+    it("classify degrades to the needs-reasoning sentinel on a max_tokens truncation", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "still reasoning, ran out of budget" },
+        ],
+        stop_reason: "max_tokens",
+        usage: { input_tokens: 120, output_tokens: 256 },
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const result = await provider.classify("hi", "Classify.");
+      expect(result.classification).toBe("needs-reasoning");
+      expect(result.confidence).toBe(0);
     });
   });
 
@@ -266,6 +339,7 @@ describe("HttpTriageProvider", () => {
       mockFetchResponse({
         content: [
           {
+            type: "text",
             text: '{"moscow":"should","proposed_action":"bump pg","affected_users":0,"confidence":0.7}',
           },
         ],
