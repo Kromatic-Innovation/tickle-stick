@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.7] — 2026-10-23
+
+Maintenance release. No consumer-visible or breaking changes — `src/` is
+unchanged since 0.6.6; upgrading changes no runtime behaviour.
+
+### Changed
+
+- **Dependencies** — routine Dependabot bumps to the lockfile: npm-patch group
+  (`zod` 4.6.5 → 4.6.7, `@typescript-eslint/*` 8.71.1 → 8.71.2, `vitest` and
+  `@vitest/coverage-v8` 5.0.3 → 5.0.5; #231). `package.json` ranges are
+  unchanged.
+- **`actions/create-github-app-token` bumped** in `promote-main.yml`. (#230)
+
 ## [0.6.6] — 2026-10-15
 
 Maintenance release. No consumer-visible or breaking changes — `src/` is
@@ -413,6 +426,9 @@ stabilization in
   489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
   prune, asymmetric provider API.
 
+[0.6.7]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.7
+[0.6.6]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.6
+[0.6.5]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.5
 [0.6.4]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.4
 [0.6.3]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.3
 [0.6.2]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.2
