@@ -208,9 +208,20 @@ export class StageRouter {
           tokensOut,
           provider,
           model,
+          failureReason,
         } = await classifyItem(item, stage, this.provider);
         classified.push(ci);
         result.costEstimate += costEstimate;
+
+        // The provider degraded to the needs-reasoning sentinel because the
+        // underlying call failed (not a genuine low-confidence result) —
+        // surface it the same way a script-stage failure is surfaced
+        // (tickle-stick#239). This is additive beside the existing
+        // catch(err) below, which deliberately does NOT set result.errored.
+        if (failureReason) {
+          result.errored = true;
+          this.onError?.(stage.name, new Error(failureReason), "stage");
+        }
 
         this.emit({
           pipeline: this.pipelineName,
