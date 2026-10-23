@@ -30,17 +30,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cheap-model stage router now checks `failureReason`: it calls `onError`
   once per failed item and marks `StageResult.errored = true` for the
   stage, and the cost calculator charges zero cost instead of falling back
-  to `DEFAULT_COST_ESTIMATE` for a result that carries it. Additive and
-  non-breaking. (#239, semver-minor)
+  to `DEFAULT_COST_ESTIMATE` for a result that carries it. A `max_tokens`
+  truncation is the one failure that still burned real tokens: `classify()`
+  now reads the response's usage block before the truncation throw can
+  fire, so a truncated-but-billed call is charged the measured tokens
+  instead of zero, while a failure with no response body at all (404,
+  network error, abort) still has no usage and stays zero-cost. Additive
+  and non-breaking. (#239, semver-minor)
 - **Skipping the cheap tier no longer drops items for `classified:*` stages
   silently** — a budget-cap trip now skips every model stage (cheap and
   expensive) explicitly: skipped items stay in `context` untouched (a
   downstream callback stage with `input: "all"` still sees them), a
   telemetry event names the budget as the skip reason, and `onError`
   fires once per skipped stage. Previously this was a bare, unobserved
-  `return` in `StageRouter`. **Breaking:** a cheap-model stage with no
-  `provider: "cheap"` + `systemPrompt`, or a pipeline with a cheap-model
-  stage but no `triageProvider`, now throws at `new Pipeline(...)`
+  `return` in `StageRouter`. **Breaking:** a `model` stage with
+  `provider: "cheap"` and no `systemPrompt`, or a pipeline containing such
+  a stage but no `triageProvider`, now throws at `new Pipeline(...)`
   instead of silently skipping at runtime — this ties to the
   strict-schema validation in #243 but is enforced here at construction
   time regardless. The README's budget pass-through sentence is rewritten

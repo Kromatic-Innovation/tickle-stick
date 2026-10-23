@@ -263,6 +263,24 @@ describe("HttpTriageProvider", () => {
       // tickle-stick#239 failure channel: classify()'s catch sets
       // failureReason from the thrown message.
       expect(result.failureReason).toContain("max_tokens");
+      // Seer finding (tickle-stick#239): a max_tokens truncation still
+      // burned real tokens — the sentinel must carry the measured usage
+      // so the caller charges for it instead of silently costing zero.
+      expect(result.tokenUsage).toEqual({ input: 120, output: 256 });
+    });
+
+    it("has no tokenUsage on a truncation whose response carries no usage block (tickle-stick#239)", async () => {
+      mockFetchResponse({
+        content: [
+          { type: "thinking", thinking: "still reasoning, ran out of budget" },
+        ],
+        stop_reason: "max_tokens",
+      });
+
+      const provider = makeProvider({ provider: "anthropic" });
+      const result = await provider.classify("hi", "Classify.");
+      expect(result.failureReason).toContain("max_tokens");
+      expect(result.tokenUsage).toBeUndefined();
     });
   });
 
@@ -277,6 +295,9 @@ describe("HttpTriageProvider", () => {
       expect(result.confidence).toBe(0);
       expect(result.failureReason).toBeTruthy();
       expect(result.failureReason).toContain("404");
+      // Complement of the max_tokens case: no body was ever received, so
+      // there is no usage to charge for — stays zero-cost (tickle-stick#239).
+      expect(result.tokenUsage).toBeUndefined();
     });
 
     it("returns needs-reasoning on fetch failure, with failureReason set (tickle-stick#239)", async () => {
@@ -290,6 +311,7 @@ describe("HttpTriageProvider", () => {
       expect(result.classification).toBe("needs-reasoning");
       expect(result.confidence).toBe(0);
       expect(result.failureReason).toBe("Network error");
+      expect(result.tokenUsage).toBeUndefined();
     });
 
     it("returns needs-reasoning on abort (timeout), with failureReason set (tickle-stick#239)", async () => {

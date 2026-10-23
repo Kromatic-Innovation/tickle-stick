@@ -709,6 +709,102 @@ describe("Budget cap re-evaluation at the pipeline level (tickle-stick#240)", ()
     expect(classifyResult.items.length).toBeLessThan(items.length);
     expect(classifyResult.items.length).toBeLessThanOrEqual(20);
   });
+
+  it("tolerates a throwing storage adapter at refresh() time: run() still resolves and reports via onError (Seer finding 1)", async () => {
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      getSpendSince: vi.fn().mockRejectedValue(new Error("storage is down")),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+    const onError = vi.fn();
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+    });
+
+    const pipeline = new Pipeline({
+      name: "throwing-storage",
+      config: { stages: [scriptStageForItems(sampleItems), classifyStage()] },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    // The failing refresh() at the top of run() must not reject run()
+    // itself -- it must be reported and tolerated, same contract as any
+    // other storage/hook failure in this class.
+    const result = await pipeline.run();
+
+    expect(result.totalItems).toBe(sampleItems.length);
+    expect(onError).toHaveBeenCalledWith(
+      "budget-record",
+      expect.any(Error),
+      "post-hook",
+    );
+  });
+
+  it("does not discard already-classified items when a periodic refresh() throws mid-loop (Seer finding 1)", async () => {
+    const items: WorkItem[] = Array.from({ length: 25 }, (_, i) => ({
+      id: `item-${i}`,
+      source: "gmail",
+      type: "email",
+      summary: `Message ${i}`,
+      timestamp: new Date(),
+    }));
+
+    let calls = 0;
+    const storage: StorageAdapter = {
+      writeEvent: vi.fn(),
+      getSpendSince: vi.fn(() => {
+        calls += 1;
+        // Calls 1-2 are Pipeline.run()'s start-of-run refresh (day +
+        // week) and must succeed so the stage is allowed to start.
+        // Every call after that is the cheap-tier loop's own periodic
+        // refresh, which this test makes fail every time it runs, to
+        // prove that failure is bookkeeping-only.
+        if (calls <= 2) return 0;
+        throw new Error("storage is down");
+      }),
+      prune: vi.fn().mockResolvedValue(0),
+    };
+
+    const onError = vi.fn();
+    const classifyFn = vi.fn().mockResolvedValue({
+      classification: "routine",
+      confidence: 0.95,
+      // Zero token usage -> zero costEstimate -> emit() never calls
+      // budgetManager.record() for these items, so the getSpendSince
+      // call count above stays deterministic (driven only by the
+      // start-of-run refresh and the loop's own periodic refresh).
+      tokenUsage: { input: 0, output: 0 },
+    });
+
+    const pipeline = new Pipeline({
+      name: "refresh-throws-mid-loop",
+      config: { stages: [scriptStageForItems(items), classifyStage()] },
+      telemetry: { enabled: false, format: "json" },
+      triageProvider: mockProvider(classifyFn),
+      storage,
+      budgetConfig: { maxDailySpend: 1, alerts: [], retentionDays: 30 },
+      onError,
+    });
+
+    const result = await pipeline.run();
+    const classifyResult = result.stageResults[1];
+
+    // Every item is still classified: a refresh() throw mid-loop must not
+    // abort the stage body and discard the items already classified
+    // before (or after) it -- context.classified.push() still runs.
+    expect(classifyResult.items).toHaveLength(items.length);
+    expect(classifyFn).toHaveBeenCalledTimes(items.length);
+    expect(onError).toHaveBeenCalledWith(
+      "classify",
+      expect.any(Error),
+      "stage",
+    );
+  });
 });
 
 describe("Budget-cap model-stage skip (tickle-stick#241, operator ruling D2)", () => {
