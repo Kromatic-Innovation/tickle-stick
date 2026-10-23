@@ -213,6 +213,25 @@ describe("BudgetManager", () => {
     expect(mgr.isBudgetExceeded()).toBe(false);
   });
 
+  it("sets the exceeded flag despite a throwing alert sink (tickle-stick#240, Finding 2)", async () => {
+    const throwingAlertSink = vi.fn(() => {
+      throw new Error("alert sink is down");
+    });
+    const mgr = new BudgetManager({
+      config: makeConfig({ maxDailySpend: 0.01 }),
+      storage,
+      alertSink: throwingAlertSink,
+    });
+
+    storage.events.push(makeEvent(0.02));
+
+    // checkBudget() (via refresh()) must decide `exceeded` before it ever
+    // awaits the alert sink, so a throwing sink does not leave the flag
+    // stuck at its previous (false) value.
+    await expect(mgr.refresh()).rejects.toThrow("alert sink is down");
+    expect(mgr.isBudgetExceeded()).toBe(true);
+  });
+
   it("refresh() re-trips the cap from storage without a costed event", async () => {
     const mgr = new BudgetManager({
       config: makeConfig({ maxDailySpend: 0.01 }),

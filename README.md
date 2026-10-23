@@ -394,9 +394,14 @@ in the pipeline context exactly as they arrived (unclassified), so a
 downstream callback stage with `input: "all"` still receives them — only a
 `classified:*` filter sees nothing, since those items were never classified.
 Each skip emits a telemetry event naming `"budget"` as the reason and calls
-`onError` once for that stage. A missing provider or missing `systemPrompt`
-on a cheap-model stage is a different case entirely: that's a config error
-and throws at `new Pipeline(...)`, not a runtime skip.
+`onError` once for that stage. If a cheap-model stage is already midway
+through its batch when the cap trips, it stops early instead of being
+skipped whole: items already classified are kept, but the cut itself is
+reported with the same `"budget"` signal — one telemetry event and one
+`onError` call, carrying how many items were classified and how many were
+left unprocessed. A missing provider or missing `systemPrompt` on a
+cheap-model stage is a different case entirely: that's a config error and
+throws at `new Pipeline(...)`, not a runtime skip.
 
 ### Storage Adapter
 
