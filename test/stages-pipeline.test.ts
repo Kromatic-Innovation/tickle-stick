@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { Pipeline } from "../src/pipeline.js";
+import { runScript } from "../src/script-runner.js";
+import { applyInputFilter, type PipelineContext } from "../src/pipeline/context.js";
 import type { StageConfig } from "../src/config/schema.js";
-import type { WorkItem, TriageProvider } from "../src/types.js";
+import type { WorkItem, TriageProvider, ClassifiedItem } from "../src/types.js";
 
 const sampleItems: WorkItem[] = [
   {
@@ -575,5 +577,61 @@ describe("Multi-stage pipeline", () => {
     expect(result.totalItems).toBe(0);
     expect(result.stageResults).toHaveLength(1); // Only gather stage
     expect(stageCallbacks.reason).not.toHaveBeenCalled();
+  });
+});
+
+describe("Default item id collisions across id-less gather stages (audit F19)", () => {
+  // Reproduces tickle-stick#245: two gather stages that both omit `id` on
+  // their items used to get the same per-stage-local default id
+  // (`item-0`, `item-1`, ...) from script-runner's `parseScriptOutput`.
+  // That collision then corrupts `applyInputFilter("all")`: once one
+  // stage's items are classified, the *other* stage's items are wrongly
+  // treated as "already classified" (same id) and dropped from the
+  // result, so the count returned is lower than the number of items
+  // actually gathered.
+  it("fixture: two id-less gather stages feeding applyInputFilter('all')", async () => {
+    const stageA = await runScript(
+      "node",
+      [
+        "-e",
+        'process.stdout.write(JSON.stringify([{summary:"A1"},{summary:"A2"}]))',
+      ],
+      5000,
+    );
+    const stageB = await runScript(
+      "node",
+      [
+        "-e",
+        'process.stdout.write(JSON.stringify([{summary:"B1"},{summary:"B2"}]))',
+      ],
+      5000,
+    );
+
+    const gathered: WorkItem[] = [...stageA, ...stageB];
+    expect(gathered).toHaveLength(4);
+
+    // Simulate a cheap-model stage having classified stage A's items (as
+    // happens in a real pipeline run) before stage B's items are looked at.
+    const classified: ClassifiedItem[] = stageA.map((item) => ({
+      ...item,
+      classification: "routine",
+      confidence: 0.9,
+    }));
+
+    const context: PipelineContext = {
+      allItems: gathered,
+      classified,
+      stageOutputs: new Map(),
+    };
+
+    const result = applyInputFilter("all", context);
+
+    // Every gathered item must still be reachable by a stage reading "all"
+    // input — none should be silently dropped by an id collision.
+    expect(result).toHaveLength(gathered.length);
+
+    // And no two gathered items should actually share a default id.
+    const ids = gathered.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
