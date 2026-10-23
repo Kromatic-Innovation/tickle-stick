@@ -48,16 +48,34 @@ export class HttpTriageProvider implements TriageProvider {
     systemPrompt: string,
   ): Promise<ClassificationResult> {
     try {
-      const body = await this.fetchModelBody(text, systemPrompt);
-      if (!body) return { classification: "needs-reasoning", confidence: 0 };
+      const { body, failureReason } = await this.fetchModelBody(
+        text,
+        systemPrompt,
+      );
+      if (!body) {
+        return {
+          classification: "needs-reasoning",
+          confidence: 0,
+          failureReason: failureReason ?? "empty response body",
+        };
+      }
       const responseText = this.extractText(body);
       const decision = parseClassificationResponse(responseText);
       decision.tokenUsage = this.extractTokenUsage(body);
       decision.provider = this.options.provider;
       decision.model = this.options.model;
       return decision;
-    } catch {
-      return { classification: "needs-reasoning", confidence: 0 };
+    } catch (err) {
+      // Covers thrown network/abort errors and the max_tokens truncation
+      // thrown by extractText() (tickle-stick#238) — both degrade to the
+      // needs-reasoning sentinel but now carry the reason via failureReason
+      // so the stage router can surface onError/errored instead of silently
+      // swallowing the failure (tickle-stick#239).
+      return {
+        classification: "needs-reasoning",
+        confidence: 0,
+        failureReason: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
@@ -75,7 +93,7 @@ export class HttpTriageProvider implements TriageProvider {
    * timeout from an empty response.
    */
   async classifyRaw(text: string, systemPrompt: string): Promise<string> {
-    const body = await this.fetchModelBody(text, systemPrompt, {
+    const { body } = await this.fetchModelBody(text, systemPrompt, {
       throwOnError: true,
     });
     if (!body) return "";
@@ -86,7 +104,7 @@ export class HttpTriageProvider implements TriageProvider {
     text: string,
     systemPrompt: string,
     opts: { throwOnError?: boolean } = {},
-  ): Promise<Record<string, unknown> | null> {
+  ): Promise<{ body: Record<string, unknown> | null; failureReason?: string }> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.options.timeout);
     try {
@@ -102,9 +120,12 @@ export class HttpTriageProvider implements TriageProvider {
             `${this.options.provider} API ${response.status}: ${errBody.slice(0, 200)}`,
           );
         }
-        return null;
+        return {
+          body: null,
+          failureReason: `${this.options.provider} API ${response.status}`,
+        };
       }
-      return (await response.json()) as Record<string, unknown>;
+      return { body: (await response.json()) as Record<string, unknown> };
     } finally {
       clearTimeout(timer);
     }
