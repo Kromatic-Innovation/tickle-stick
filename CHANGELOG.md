@@ -37,6 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of zero, while a failure with no response body at all (404,
   network error, abort) still has no usage and stays zero-cost. Additive
   and non-breaking. (#239, semver-minor)
+- **Skipping the cheap tier no longer drops items for `classified:*` stages
+  silently** — a budget-cap trip now skips every model stage (cheap and
+  expensive) explicitly: skipped items stay in `context` untouched (a
+  downstream callback stage with `input: "all"` still sees them), a
+  telemetry event names the budget as the skip reason, and `onError`
+  fires once per skipped stage. Previously this was a bare, unobserved
+  `return` in `StageRouter`. **Breaking:** a `model` stage with
+  `provider: "cheap"` and no `systemPrompt`, or a pipeline containing such
+  a stage but no `triageProvider`, now throws at `new Pipeline(...)`
+  instead of silently skipping at runtime — this ties to the
+  strict-schema validation in #243 but is enforced here at construction
+  time regardless. The README's budget pass-through sentence is rewritten
+  to match. A cheap-model stage that's already mid-batch when the cap
+  trips now reports the cut the same way instead of silently exiting the
+  loop: items already classified are still retained, but one telemetry
+  event (naming `"budget"` as the reason, with classified/skipped counts)
+  and one `onError` call now fire for the stage. (#241, semver-minor)
 
 ## [0.6.7] — 2026-10-23
 
