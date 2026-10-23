@@ -33,9 +33,29 @@ export function runScript(
 }
 
 /**
+ * Grace period between the SIGTERM sent on timeout and the SIGKILL that
+ * follows it. A child that installs a TERM handler (or `trap '' TERM`)
+ * never exits on SIGTERM, so without an escalation the stage promise would
+ * never settle. SIGKILL cannot be caught, blocked, or ignored.
+ */
+export const SIGKILL_GRACE_MS = 500;
+
+/**
+ * Cap on the child stderr retained for diagnostics. stderr is always drained
+ * so a chatty child can never block on a full pipe buffer; only this much of
+ * the tail is kept in memory to quote back in the error message.
+ */
+const STDERR_TAIL_LIMIT = 2000;
+
+/**
  * Execute a script with JSON data piped to stdin.
  * Used for enrichment stages that transform filtered items.
- * On any error, returns the original items unchanged.
+ *
+ * On any error (timeout, bad JSON, non-zero exit) this returns an empty
+ * array and reports the error via `onError`; it does not echo the input
+ * back. The caller (`stage-router`) treats an empty result as "no
+ * enrichment happened" and leaves the original items untouched, which is
+ * where the unchanged-items behaviour actually comes from.
  */
 export function runPipedScript(
   command: string,
@@ -53,38 +73,77 @@ export function runPipedScript(
     });
 
     let stdout = "";
+    let stderrTail = "";
     let timedOut = false;
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, timeout);
+    const finish = (result: WorkItem[], err?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      if (killTimer !== undefined) clearTimeout(killTimer);
+      if (err !== undefined) onError?.(err);
+      resolve(result);
+    };
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf-8");
     });
 
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (timedOut) {
-        onError?.(new Error(`piped script timed out after ${timeout}ms`));
-        resolve([]);
-        return;
-      }
-      if (code !== 0) {
-        onError?.(new Error(`piped script exited with code ${code}`));
-        resolve([]);
-        return;
-      }
-      resolve(
-        parseScriptOutput(stdout, scriptKey(command, args, cwd), onError),
+    // Drain stderr. Without a reader the OS pipe buffer (typically 64 KiB)
+    // fills and the child blocks forever on write(2), deadlocking the stage
+    // until its timeout fires (audit finding F11). Only a bounded tail is
+    // retained, to quote back in the error message.
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderrTail = (stderrTail + chunk.toString("utf-8")).slice(
+        -STDERR_TAIL_LIMIT,
       );
     });
 
+    const withStderr = (message: string): string => {
+      const tail = stderrTail.trim();
+      return tail ? `${message}; stderr tail: ${tail}` : message;
+    };
+    const timeoutError = (): Error =>
+      new Error(withStderr(`piped script timed out after ${timeout}ms`));
+
+    timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      // A child that ignores SIGTERM would otherwise never emit 'close' and
+      // the promise would hang forever. Escalate to SIGKILL, then settle
+      // without waiting for 'close': an orphaned grandchild can keep the
+      // stdio pipes open past the child's own death, which delays — or
+      // prevents — that event.
+      killTimer = setTimeout(() => {
+        child.kill("SIGKILL");
+        finish([], timeoutError());
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
+      }, SIGKILL_GRACE_MS);
+      killTimer.unref();
+    }, timeout);
+
+    child.on("close", (code) => {
+      if (timedOut) {
+        finish([], timeoutError());
+        return;
+      }
+      if (code !== 0) {
+        finish(
+          [],
+          new Error(withStderr(`piped script exited with code ${code}`)),
+        );
+        return;
+      }
+      finish(parseScriptOutput(stdout, scriptKey(command, args, cwd), onError));
+    });
+
     child.on("error", (err) => {
-      clearTimeout(timer);
-      onError?.(err);
-      resolve([]);
+      finish([], err);
     });
 
     // Silently drop stdin errors (e.g. EPIPE). A child that ignores stdin
