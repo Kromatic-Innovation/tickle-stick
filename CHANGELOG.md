@@ -170,6 +170,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported via `onError`, with the caller leaving items untouched, and now
   says so. (#244, semver-patch)
 
+### Security
+
+- **`zod` minimum raised to `^4.6.6`** (was `^4.3.0`) — GHSA-mrhx-c7xc-m3w5
+  ("Zod can exhaust memory while validating oversized constrained
+  collections", high, fixed in zod 4.6.6) affects every zod `< 4.6.6`. The
+  installed version has been 4.6.7 since #231, so this repo's own tree was
+  never exposed — but the lockfile is not published, so a consumer installing
+  tickle-stick resolved `zod` against the declared range and could legitimately
+  land on a vulnerable 4.3.x–4.6.5. Raising the floor to the first patched
+  version closes that consumer-facing exposure; it is the least restrictive
+  range that excludes the advisory. No resolved version changes (`zod` stays
+  4.6.7) and no runtime behaviour changes. Consumers pinning `zod` below 4.6.6
+  themselves will now see a peer-range conflict — intended. (#275, #276,
+  semver-patch)
+
 ## [0.6.7] — 2026-10-23
 
 Maintenance release. No consumer-visible or breaking changes — `src/` is
