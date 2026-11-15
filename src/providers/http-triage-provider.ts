@@ -162,7 +162,10 @@ export class HttpTriageProvider implements TriageProvider {
         },
         body: JSON.stringify({
           model: this.options.model,
-          max_tokens: this.options.maxTokens,
+          // OpenAI's current models (gpt-5 family, o-series, gpt-6) reject
+          // `max_tokens` with a 400; `max_completion_tokens` is accepted by
+          // every model, including the 4o family (live check, tickle-stick#252).
+          max_completion_tokens: this.options.maxTokens,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userMessage },

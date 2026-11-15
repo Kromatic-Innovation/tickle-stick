@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`HttpTriageProvider` (OpenAI) failed with a 400 on current models** — the
+  OpenAI request sent `max_tokens`, which current OpenAI models (the gpt-5
+  family, o-series reasoning models, gpt-6) reject with `Unsupported
+  parameter: 'max_tokens'`. The request now sends `max_completion_tokens`,
+  which every OpenAI model tested accepts, including the gpt-4o family. The
+  Anthropic request is unchanged (#252).
 - **`HttpTriageProvider` (Anthropic) no longer reads only `content[0]`** — when
   adaptive thinking engages, the model's response leads with a `thinking`
   content block, and `extractText` previously read it as `""`, silently

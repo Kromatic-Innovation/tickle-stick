@@ -70,7 +70,9 @@ describe("HttpTriageProvider", () => {
         { role: "system", content: "Classify this." },
         { role: "user", content: "hello" },
       ]);
-      expect(body.max_tokens).toBe(256);
+      // tickle-stick#252: current OpenAI models reject `max_tokens` (400).
+      expect(body.max_completion_tokens).toBe(256);
+      expect(body).not.toHaveProperty("max_tokens");
     });
 
     it("parses response and extracts token usage", async () => {
@@ -171,6 +173,10 @@ describe("HttpTriageProvider", () => {
       expect(body.model).toBe("claude-haiku-4-5-20251001");
       expect(body.system).toBe("Classify.");
       expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+      // The Anthropic Messages API still takes `max_tokens` (tickle-stick#252
+      // renamed the OpenAI field only).
+      expect(body.max_tokens).toBe(256);
+      expect(body).not.toHaveProperty("max_completion_tokens");
     });
 
     it("extracts Anthropic token usage", async () => {
@@ -451,7 +457,8 @@ describe("HttpTriageProvider", () => {
       const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
       const body = JSON.parse(init.body as string);
-      expect(body.max_tokens).toBe(256);
+      expect(body.max_completion_tokens).toBe(256);
+      expect(body).not.toHaveProperty("max_tokens");
     });
 
     it("respects custom maxTokens", async () => {
@@ -471,7 +478,8 @@ describe("HttpTriageProvider", () => {
       const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
       const body = JSON.parse(init.body as string);
-      expect(body.max_tokens).toBe(128);
+      expect(body.max_completion_tokens).toBe(128);
+      expect(body).not.toHaveProperty("max_tokens");
     });
   });
 });
