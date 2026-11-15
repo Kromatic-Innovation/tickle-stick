@@ -35,14 +35,21 @@ function interpolateEnvVars(content: string): string {
 function resolveFileRefs(obj: unknown, basePath: string): unknown {
   if (typeof obj === "string" && obj.startsWith(FILE_REF_PREFIX)) {
     const baseResolved = path.resolve(basePath);
-    const filePath = path.resolve(baseResolved, obj.slice(FILE_REF_PREFIX.length));
+    const filePath = path.resolve(
+      baseResolved,
+      obj.slice(FILE_REF_PREFIX.length),
+    );
     // Contain the reference to the config directory subtree. Without this an
     // `$file:../../../../etc/passwd` (or an absolute path) would inline any
     // file the process can read into the config — and from there into
     // prompts and stage commands. Path traversal is a tracked threat class
     // (docs/security-posture.md §2).
     const rel = path.relative(baseResolved, filePath);
-    if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    if (
+      rel === ".." ||
+      rel.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(rel)
+    ) {
       throw new Error(
         `File reference escapes the config directory: ${obj} (resolved outside ${baseResolved})`,
       );
@@ -88,8 +95,8 @@ export function loadConfig(configPath?: string): TickleStickConfig {
 
   const raw = fs.readFileSync(resolved, "utf-8");
   const interpolated = interpolateEnvVars(raw);
-  const parsed = YAML.parse(interpolated);
-  const withFileRefs = resolveFileRefs(parsed, path.dirname(resolved));
+  const parsed: unknown = YAML.parse(interpolated);
+  const withFileRefs: unknown = resolveFileRefs(parsed, path.dirname(resolved));
   return tickleStickConfigSchema.parse(withFileRefs);
 }
 
@@ -98,7 +105,9 @@ export function loadConfigFromString(
   basePath?: string,
 ): TickleStickConfig {
   const interpolated = interpolateEnvVars(yamlContent);
-  const parsed = YAML.parse(interpolated);
-  const withFileRefs = basePath ? resolveFileRefs(parsed, basePath) : parsed;
+  const parsed: unknown = YAML.parse(interpolated);
+  const withFileRefs: unknown = basePath
+    ? resolveFileRefs(parsed, basePath)
+    : parsed;
   return tickleStickConfigSchema.parse(withFileRefs);
 }
