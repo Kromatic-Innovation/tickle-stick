@@ -59,15 +59,20 @@ here saves ~$0.05 in model costs.
 
 ### Step 3: Design the classify stage (Tier 1)
 
-The cheap model classifies items into categories. Common patterns:
+The cheap model classifies each item into exactly one of three categories.
+The config schema accepts only these (`input: "classified:<value>"` with any
+other value fails to load):
 
-| Classification         | Meaning                                   |
-| ---------------------- | ----------------------------------------- |
-| `routine`              | Handled by post-hook, no reasoning needed |
-| `needs-reasoning`      | Promote to expensive model                |
-| `urgent`               | Promote AND alert immediately             |
-| `needs-classification` | Ambiguous, model needs more context       |
-| `spam`                 | Filter out, apply label                   |
+| Classification    | Meaning                                   |
+| ----------------- | ----------------------------------------- |
+| `routine`         | Handled by post-hook, no reasoning needed |
+| `needs-reasoning` | Promote to expensive model                |
+| `urgent`          | Promote AND alert immediately             |
+
+Anything finer-grained (spam, newsletters, and so on) is a `routine` item the
+post-hook acts on, for example by applying a label. An ambiguous item is
+`needs-reasoning`: a confidence below `confidenceThreshold` already escalates
+to it automatically.
 
 **Key settings:**
 
@@ -240,17 +245,22 @@ Read config, find the control group, create/update a cron task with
 
 ### 3. Add dispatch branch:
 
-Register `stageCallbacks` for model and callback stages.
+Register an `expensiveStageProvider` entry (keyed by stage name) for each
+expensive-model and callback stage. (`stageCallbacks` is the deprecated
+alias, still honored until 1.0; new code should not use it.)
 
 **Closure pattern** for passing data between stages:
 
 ```typescript
+import type { ExpensiveStageProvider } from "tickle-stick";
+
 let reasonOutput = "";
-stageCallbacks["reason"] = async (items, prompt) => {
+const expensiveStageProvider: ExpensiveStageProvider = {};
+expensiveStageProvider["reason"] = async (items, prompt) => {
   reasonOutput = await processTier2Direct(items, prompt);
   return reasonOutput;
 };
-stageCallbacks["post-deliver"] = async () => {
+expensiveStageProvider["post-deliver"] = async () => {
   // Access reasonOutput from closure
   return "";
 };
