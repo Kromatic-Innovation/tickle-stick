@@ -66,7 +66,7 @@ Current majors of note (as of 2026-05-13): `yaml` 2.x, `zod` 4.x, TypeScript 5.7
 
 The watch-only review cadence is **quarterly** (next: 2026-08-13). At each checkpoint:
 
-1. Re-run `npm audit` and review high+/critical findings.
+1. Review moderate/low `npm audit` findings. High and critical findings already fail CI (§4.1).
 2. Skim the `yaml` and `zod` changelogs for parser / validation behavior changes that may affect consumers.
 3. Confirm `files` in `package.json` still ships only the intended subset (no test fixtures, no .env, no internal docs).
 4. Confirm `release.yml` uses pinned action SHAs (or at least pinned tags) for the npm publish step.
@@ -76,13 +76,23 @@ The watch-only review cadence is **quarterly** (next: 2026-08-13). At each check
 
 Verify under `.github/workflows/`:
 
-- **`ci.yaml`** — primary CI gate Dependabot PRs must satisfy before auto-merge fires.
+- **`ci.yaml`** — primary CI gate Dependabot PRs must satisfy before auto-merge fires. It includes the `npm audit` gate (§4.1).
 - **`release.yml`** — publishes the tarball to npm. Keep the actions used here patched.
 
 Consider in a follow-up:
 
-- **`npm audit` scheduled scan** for advisory surfacing beyond Dependabot.
 - **CodeQL** for static analysis of the published surface.
+
+### 4.1 Authoritative vulnerability signal: the CI `npm audit` gate
+
+**The `npm audit --audit-level=high` step in `ci.yaml` is the authoritative dependency-vulnerability signal for this repo** (operator ruling 2026-11-15, tickle-stick#280). It audits the real `package-lock.json` across the full dependency tree, dev dependencies included, because they run in CI. It runs once per CI run, on the primary Node version, and fails the job on any high or critical advisory. A red audit step on a PR or on `develop` is a real finding: fix it there.
+
+**Dependabot alerts are secondary while GitHub's dependency graph is stale.** The graph for this repo is stuck at an April 2026 snapshot (the SBOM endpoint returns 404), so alerts can cite package versions that are no longer installed. Triage rule:
+
+- **An alert whose cited version is not in `package-lock.json` is dismissed as inaccurate, with no fix attempt.** Check the lockfile, not the alert. Dismiss with reason "inaccurate" and a comment naming the version that is actually locked.
+- An alert whose cited version **is** in the lockfile is real. The `npm audit` gate should already be red for it at high/critical, so fix it the normal way.
+
+Dependabot security updates and secret scanning / push protection stay enabled as secondary signals. Getting GitHub to re-ingest the graph is not pursued.
 
 ## 5. Coverage snapshot (for hold-list calibration)
 

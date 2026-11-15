@@ -61,6 +61,16 @@ jobs:
         if: matrix.node-version == 22
         run: npm run coverage
 
+      # The authoritative dependency-vulnerability signal for this repo
+      # (tickle-stick#280; see docs/security-posture.md §4.1). It audits the
+      # real package-lock.json across the FULL tree, dev dependencies
+      # included (no --omit=dev): they run here, in CI. It runs once per CI
+      # run, on the primary Node version (the same guard as coverage), and
+      # fails the job on any high or critical advisory.
+      - name: Dependency audit (high+ fails)
+        if: matrix.node-version == 22
+        run: npm audit --audit-level=high
+
   public-safe-lint:
     name: org-agnostic public-safety shapes (local paths, bare issue refs, +alias emails)
     runs-on: ubuntu-latest

@@ -149,6 +149,32 @@ describe("workflow token scope and Gitleaks hardening (tickle-stick#250)", () =>
   });
 });
 
+describe("npm audit gate (tickle-stick#280)", () => {
+  it("lint-test runs npm audit at high level over the full tree, once per run on the primary Node version", () => {
+    const ci = loadWorkflow("ci.yaml");
+    const job = (ci.jobs as Record<string, Record<string, unknown>>)[
+      "lint-test"
+    ];
+    const steps = job.steps as Array<Record<string, unknown>>;
+    const audit = steps.filter(
+      (s) => typeof s.run === "string" && s.run.includes("npm audit"),
+    );
+    expect(audit).toHaveLength(1);
+    const run = audit[0].run as string;
+    expect(run).toContain("--audit-level=high");
+    // Dev dependencies run in CI, so they are audited too.
+    expect(run).not.toMatch(/--omit|--production|--only/);
+    // Once per run: the same primary-Node guard the coverage step uses.
+    const coverage = steps.find(
+      (s) => s.name === "Coverage (thresholds enforced)",
+    );
+    expect(audit[0].if).toBe("matrix.node-version == 22");
+    expect(audit[0].if).toBe(coverage?.if);
+    // A failing audit must fail the job, not be swallowed.
+    expect(audit[0]["continue-on-error"]).toBeUndefined();
+  });
+});
+
 describe("dependabot-auto-merge.yml", () => {
   const workflow = loadWorkflow("dependabot-auto-merge.yml");
 
