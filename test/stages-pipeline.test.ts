@@ -647,6 +647,9 @@ describe("Budget cap re-evaluation at the pipeline level (tickle-stick#240)", ()
       name: "classify",
       type: "model",
       provider: "cheap",
+      // Explicit rates are required under a budget (tickle-stick#248).
+      costPerInputToken: 0.00000025,
+      costPerOutputToken: 0.00000125,
       systemPrompt: "Classify",
       confidenceThreshold: 0.7,
     };
@@ -905,6 +908,9 @@ describe("Budget-cap model-stage skip (tickle-stick#241, operator ruling D2)", (
             name: "classify",
             type: "model",
             provider: "cheap",
+            // Explicit rates are required under a budget (tickle-stick#248).
+            costPerInputToken: 0.00000025,
+            costPerOutputToken: 0.00000125,
             systemPrompt: "Classify",
           },
           {
@@ -1012,6 +1018,9 @@ describe("Budget-cap model-stage skip (tickle-stick#241, operator ruling D2)", (
             name: "classify",
             type: "model",
             provider: "cheap",
+            // Explicit rates are required under a budget (tickle-stick#248).
+            costPerInputToken: 0.00000025,
+            costPerOutputToken: 0.00000125,
             systemPrompt: "Classify",
           },
         ],
@@ -1087,6 +1096,9 @@ describe("Budget-cap model-stage skip (tickle-stick#241, operator ruling D2)", (
             name: "classify",
             type: "model",
             provider: "cheap",
+            // Explicit rates are required under a budget (tickle-stick#248).
+            costPerInputToken: 0.00000025,
+            costPerOutputToken: 0.00000125,
             systemPrompt: "Classify",
           },
         ],
@@ -1252,6 +1264,9 @@ describe("Spend recorded once per item, not once per stage too (tickle-stick#254
             name: "classify",
             type: "model",
             provider: "cheap",
+            // Explicit rates are required under a budget (tickle-stick#248).
+            costPerInputToken: 0.00000025,
+            costPerOutputToken: 0.00000125,
             systemPrompt: "Classify",
             confidenceThreshold: 0.7,
           },

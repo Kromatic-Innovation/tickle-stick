@@ -24,6 +24,13 @@ on:
   # dispatch as on a pull_request. `test/ci-workflow.test.ts` enforces that.
   workflow_dispatch:
 
+# Read-only token for every job (tickle-stick#250). `npm ci` runs third-party
+# install scripts; without this block those scripts ran under the repo's
+# default workflow token. No job here writes to the repo, so none elevates.
+# A job that ever needs more must declare its own job-level `permissions:`.
+permissions:
+  contents: read
+
 jobs:
   lint-test:
     runs-on: ubuntu-latest

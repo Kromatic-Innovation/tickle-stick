@@ -43,6 +43,9 @@ tickleStick:
           provider: cheap # model: cheap (TriageProvider) or expensive (host callback)
           systemPrompt: "..." # cheap model: classification prompt
           confidenceThreshold: 0.7 # cheap model: below this → "needs-reasoning" (default: 0.7)
+          costPerInputToken: 0.000001 # cheap model: USD per input token. REQUIRED when a budget is set
+          costPerOutputToken: 0.000005 # cheap model: USD per output token. REQUIRED when a budget is set
+          defaultCostEstimate: 0.001 # cheap model: USD charged when the provider reports no token usage (optional)
 
         - name: enrich # Piped script: input filter triggers stdin piping
           type: script
@@ -79,6 +82,50 @@ tickleStick:
       - at: 0.50 # Absolute USD threshold
     retentionDays: 30 # Auto-prune events older than this (default: 30)
 ```
+
+## Per-Token Rates and Budgets
+
+When a `budget` block is configured, every cheap-model stage (`type: model`,
+`provider: cheap`) **must** set both `costPerInputToken` and
+`costPerOutputToken`, in USD per token. Config load fails if either is
+missing, and the error names the pipeline, the stage, and the missing keys.
+`new Pipeline(...)` applies the same check to a programmatic `budgetConfig`,
+so the two entry points cannot disagree.
+
+This is fail-closed by design. A budget cap is only as accurate as the rates
+its spend is computed from, and tickle-stick cannot know which model your
+`TriageProvider` calls, or what that model costs this month. Set the rates
+from your vendor's current pricing page. Vendor pages quote prices per
+million tokens, so divide by 1,000,000:
+
+| Model (Anthropic, published 2026-11-15) | Input $/1M | Output $/1M | `costPerInputToken` | `costPerOutputToken` |
+| --------------------------------------- | ---------- | ----------- | ------------------- | -------------------- |
+| Claude Haiku 4.5 (`claude-haiku-4-5`)   | $1.00      | $5.00       | `0.000001`          | `0.000005`           |
+| Claude Haiku 5.5 (`claude-haiku-5-5`)   | $0.10      | $0.50       | `0.0000001`         | `0.0000005`          |
+
+Claude Haiku 5.5's rates apply to prompts up to 100K tokens; longer prompts
+are billed at $0.50 / $2.50 per million. Re-check the vendor page when you
+change models: prices change, and these examples will go stale.
+
+```yaml
+tickleStick:
+  pipelines:
+    triage:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "..."
+          costPerInputToken: 0.000001 # Claude Haiku 4.5: $1 per million input tokens
+          costPerOutputToken: 0.000005 # Claude Haiku 4.5: $5 per million output tokens
+  budget:
+    maxDailySpend: 1.00
+```
+
+With no budget configured, the rates are optional. A stage that omits them
+falls back to a rough built-in estimate that is not tied to any vendor's
+price. That estimate only feeds telemetry (`costEstimate`), never a budget
+cap. An explicit `0` counts as set, for a free or self-hosted model.
 
 ## Script Stage Modes
 

@@ -730,6 +730,9 @@ describe("Pipeline", () => {
           name: "classify",
           type: "model",
           provider: "cheap",
+          // Explicit rates are required under a budget (tickle-stick#248).
+          costPerInputToken: 0.00000025,
+          costPerOutputToken: 0.00000125,
           systemPrompt: "Classify",
           confidenceThreshold: 0.7,
           timeout: 30000,
