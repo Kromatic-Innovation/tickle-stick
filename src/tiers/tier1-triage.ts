@@ -1,7 +1,14 @@
 import type { WorkItem, ClassifiedItem, TriageProvider } from "../types.js";
 import type { StageConfig } from "../config/schema.js";
 
-/** Default per-token rates ($USD). Match Anthropic Haiku 3.5 / OpenAI 4o-mini. */
+/**
+ * Fallback per-token rates ($USD) — a rough ESTIMATE, not any vendor's
+ * published price. Used only for telemetry cost estimates when no budget is
+ * configured: with a budget, explicit `costPerInputToken` /
+ * `costPerOutputToken` are required on every cheap-model stage (enforced by
+ * the config schema and by `new Pipeline(...)`, tickle-stick#248), so these
+ * never feed a budget cap.
+ */
 export const DEFAULT_COST_PER_INPUT_TOKEN = 0.00000025;
 export const DEFAULT_COST_PER_OUTPUT_TOKEN = 0.00000125;
 /** Default cost charged when the provider does not return tokenUsage. */

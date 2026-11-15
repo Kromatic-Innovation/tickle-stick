@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — a configured budget now requires explicit per-token rates.**
+  When `tickleStick.budget` is set, every cheap-model stage must set both
+  `costPerInputToken` and `costPerOutputToken` (USD per token). Otherwise
+  `loadConfig` / `loadConfigFromString` fail with an error naming the
+  pipeline, stage and missing keys. `new Pipeline(...)` throws the same
+  error for a programmatic `budgetConfig`. **Configs that set a budget
+  without rates are rejected after upgrading.** Add the rates from your
+  vendor's current pricing page (see `docs/configuration.md`, "Per-Token
+  Rates and Budgets"). Before this change, those configs silently fell back
+  to built-in rates of $0.25 / $1.25 per million tokens. Those rates were
+  labelled as matching Anthropic Haiku 3.5 / OpenAI gpt-4o-mini but matched
+  neither, and they undercounted Claude Haiku 4.5 ($1 / $5) by 4x, so a
+  budget cap tripped at roughly 4x the intended spend. The built-in rates
+  are unchanged, but they are now labelled as a rough estimate and apply
+  only when no budget is configured (telemetry `costEstimate` only). Ships
+  with the double-count fix (#254) so the effective cap changes once.
+  Configs without a budget are unaffected. (#248, semver-major in intent;
+  released as 0.7.0 under 0.x rules)
+
 ### Fixed
 
 - **`HttpTriageProvider` (Anthropic) no longer reads only `content[0]`** — when
