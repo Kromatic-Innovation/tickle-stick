@@ -63,6 +63,21 @@ install or config; they are consolidated under **Breaking** below, and the
   new telemetry fields are optional and non-breaking. See the double-count
   fix under Fixed for the behaviour change this accompanies. (#254)
 
+### Behaviour changes
+
+Not API breaks, but your runtime behaviour or stored data can differ after
+upgrading. Details are under Fixed.
+
+- **Urgency escalation (#247):** a `routine` verdict is now escalated to
+  `needs-reasoning` whenever the item's own `summary`/`body` mentions
+  urgency, so such items always reach the expensive tier; the cheap-tier
+  prompt also gains untrusted-text fences and the classifier-response
+  parser is stricter.
+- **Aggregate cost row dropped (#254):** the per-stage aggregate telemetry
+  event no longer carries cost, so `StorageAdapter` implementations see only
+  per-item cost rows; recorded spend and budget caps now reflect the real
+  estimate instead of 2x.
+
 ### Upgrading from 0.6.x
 
 - [ ] **Node:** run on Node 22 or later (#249).
@@ -76,6 +91,8 @@ install or config; they are consolidated under **Breaking** below, and the
       any `new Pipeline(...)` that has a `provider: "cheap"` stage (#241).
 - [ ] **Telemetry:** add `granularity: "call"` (per-item) or `"stage"`
       (per-stage rollup) to any `TelemetryEvent` literal you construct (#254).
+- [ ] **Behaviour changes:** review the two items under Behaviour changes
+      (#247, #254) against any consumer of triage results or cost rows.
 - [ ] **Stored spend:** a `SUM` over cost rows written by 0.6.x still
       double-counts; prune or ignore those rows (#254).
 - [ ] **Deep imports:** if you imported `src/providers/provider.ts`, import
@@ -185,7 +202,7 @@ install or config; they are consolidated under **Breaking** below, and the
   Deliberately fail-open: an item whose own text merely uses the word
   "urgent" (e.g. ordinary marketing mail) now always reaches the expensive
   tier even when the model genuinely says `routine`; no config key is
-  provided to opt out. (#247, semver-minor)
+  provided to opt out. Listed under **Behaviour changes**. (#247, semver-minor)
 - **Spend was recorded twice per classified item — once per item, once per
   stage** — the cheap-tier stage emitted a costed telemetry event for every
   classified item, and `Pipeline.run()` then emitted a second, stage-level
@@ -214,7 +231,8 @@ install or config; they are consolidated under **Breaking** below, and the
   only a `costSource: "default-estimate"` event gets the
   `metadata.reason: "default-cost-estimate"` visible-reason note, so the
   fallback is never a silent default.
-  The required `granularity` field is listed under **Breaking**; the other
+  The required `granularity` field is listed under **Breaking** and the
+  dropped aggregate cost row under **Behaviour changes**; the other
   new fields above are optional and non-breaking. **Behaviour change for
   `StorageAdapter` implementers:** dropping the aggregate cost row means
   fewer cost-bearing rows are written per run — a per-stage latency/cost
