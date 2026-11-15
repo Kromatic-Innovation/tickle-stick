@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING — Node.js 22 is now the minimum supported version.** Node 20
+  reached end-of-life, so `engines.node` rises from `>=20` to `>=22`. CI now
+  tests on Node 22 and 24, with coverage thresholds and the dependency audit
+  enforced on Node 22. Installing on Node 20 now triggers npm's engines
+  warning (or an error under `engine-strict`). Upgrade to Node 22 or later.
+  The release workflow already publishes on Node 22 (synced template).
+  (#249, released as 0.7.0 alongside the other breaking changes)
+
 - **BREAKING — a configured budget now requires explicit per-token rates.**
   When `tickleStick.budget` is set, every cheap-model stage must set both
   `costPerInputToken` and `costPerOutputToken` (USD per token). Otherwise

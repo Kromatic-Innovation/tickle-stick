@@ -12,7 +12,7 @@ Thank you for your interest in contributing!
 6. Typecheck: `npm run typecheck`.
 
 All four of `build`, `test`, `lint`, and `typecheck` must pass locally before
-you open a pull request — CI runs the same matrix on Node 20 and 22.
+you open a pull request — CI runs the same matrix on Node 22 and 24.
 
 ## Reporting issues
 

@@ -42,7 +42,7 @@
     "url": "https://github.com/Kromatic-Innovation/tickle-stick.git"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "yaml": "^2.7.0",
