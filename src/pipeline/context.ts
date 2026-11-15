@@ -24,8 +24,12 @@ export interface PipelineContext {
  *
  * Note: the schema validation enforces that all tokens use the
  * `classified:` prefix. The legacy "unknown filter → all items"
- * fallback below is now unreachable in normal use; it remains as a
- * defensive shim for callers that bypass the schema.
+ * fallback at the end of this function is therefore unreachable for any
+ * config loaded through `loadConfig`/`tickleStickConfigSchema`. It is
+ * still reachable for a `PipelineConfigEntry` constructed in code and
+ * handed straight to `new Pipeline(...)` (that path does not re-parse the
+ * schema), so it is kept, and marked, rather than removed
+ * (tickle-stick#251 F15).
  */
 export function applyInputFilter(
   filter: string | undefined,
@@ -51,5 +55,7 @@ export function applyInputFilter(
     );
   }
 
+  // Reachable only for an unvalidated, programmatically built config; see
+  // the docblock above.
   return [...context.allItems, ...context.classified];
 }
