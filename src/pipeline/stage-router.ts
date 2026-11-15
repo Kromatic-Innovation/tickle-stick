@@ -410,7 +410,7 @@ export class StageRouter {
     const output = await callback(inputItems as ClassifiedItem[], prompt);
     context.stageOutputs.set(stage.name, output);
     result.output = output;
-    result.items = inputItems as ClassifiedItem[];
+    result.items = inputItems;
   }
 
   private async runCallbackStage(
@@ -425,6 +425,6 @@ export class StageRouter {
     const output = await callback(inputItems as ClassifiedItem[], "");
     context.stageOutputs.set(stage.name, output);
     result.output = output;
-    result.items = inputItems as ClassifiedItem[];
+    result.items = inputItems;
   }
 }

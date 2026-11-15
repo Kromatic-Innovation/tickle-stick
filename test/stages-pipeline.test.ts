@@ -1232,7 +1232,7 @@ describe("Spend recorded once per item, not once per stage too (tickle-stick#254
     const storageEvents: Array<{ costEstimate: number }> = [];
     const storage: StorageAdapter = {
       writeEvent: vi.fn((event) => {
-        storageEvents.push(event as unknown as { costEstimate: number });
+        storageEvents.push(event);
       }),
       getSpendSince: vi.fn().mockResolvedValue(0),
       prune: vi.fn().mockResolvedValue(0),

@@ -315,9 +315,9 @@ describe("HttpTriageProvider", () => {
     });
 
     it("returns needs-reasoning on abort (timeout), with failureReason set (tickle-stick#239)", async () => {
-      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      vi.mocked(globalThis.fetch).mockImplementation(
         () =>
-          new Promise((_resolve, reject) => {
+          new Promise<Response>((_resolve, reject) => {
             setTimeout(
               () => reject(new DOMException("Aborted", "AbortError")),
               10,
