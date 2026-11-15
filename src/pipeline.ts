@@ -10,6 +10,10 @@ import type {
 } from "./types.js";
 import type { PipelineConfigEntry, TelemetryConfig } from "./config/schema.js";
 import { BudgetManager } from "./budget/budget-manager.js";
+import {
+  budgetRatesMissingMessage,
+  missingBudgetRateKeys,
+} from "./config/budget-rates.js";
 import { runPostHook } from "./post-hook.js";
 import {
   createLogger,
@@ -55,7 +59,11 @@ export interface PipelineOptions {
   storage?: StorageAdapter;
   /** Callback for budget alerts. */
   alertSink?: AlertSink;
-  /** Budget configuration. If provided, enables budget tracking. */
+  /**
+   * Budget configuration. If provided, enables budget tracking, and every
+   * cheap-model stage must set explicit `costPerInputToken` and
+   * `costPerOutputToken` (the constructor throws otherwise, tickle-stick#248).
+   */
   budgetConfig?: import("./config/schema.js").BudgetConfig;
   /** IANA timezone for budget day/week boundaries. Default: "UTC". */
   timezone?: string;
@@ -110,6 +118,20 @@ export class Pipeline {
         throw new Error(
           `Pipeline config error: model stage "${stage.name}" has provider "cheap" but no triageProvider was supplied to the Pipeline`,
         );
+      }
+    }
+
+    // Fail closed (tickle-stick#248): the same explicit-rates requirement
+    // the YAML loader enforces, so a programmatic `budgetConfig` cannot
+    // bypass it and silently cap against the estimate rates.
+    if (options.budgetConfig) {
+      for (const stage of this.config.stages) {
+        const missing = missingBudgetRateKeys(stage);
+        if (missing.length > 0) {
+          throw new Error(
+            `Pipeline config error: ${budgetRatesMissingMessage(this.name, stage.name, missing)}`,
+          );
+        }
       }
     }
 
