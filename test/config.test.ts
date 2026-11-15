@@ -32,6 +32,9 @@ describe("Config Schema", () => {
                 name: "classify",
                 type: "model",
                 provider: "cheap",
+                // Explicit rates are required under a budget (tickle-stick#248).
+                costPerInputToken: 0.00000025,
+                costPerOutputToken: 0.00000125,
                 systemPrompt: "Classify this.",
                 confidenceThreshold: 0.8,
               },

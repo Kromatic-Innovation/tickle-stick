@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { CLASSIFICATIONS } from "../types.js";
+import {
+  budgetRatesMissingMessage,
+  missingBudgetRateKeys,
+} from "./budget-rates.js";
 
 const inputFilterSchema = z.string().refine(
   (s) => {
@@ -40,7 +44,9 @@ const stageSchema = z
     systemPrompt: z.string().optional(),
     prompt: z.string().optional(),
     confidenceThreshold: z.number().min(0).max(1).optional(),
-    // pricing — defaults match Haiku 3.5 / 4o-mini input/output rates
+    // pricing — USD per token. Required on cheap-model stages whenever a
+    // budget is configured (tickle-stick#248); otherwise optional, with a
+    // rough built-in estimate used for telemetry only.
     costPerInputToken: z.number().nonnegative().optional(),
     costPerOutputToken: z.number().nonnegative().optional(),
     /** Cost charged per classification when the provider does not return tokenUsage. */
@@ -126,7 +132,26 @@ export const tickleStickConfigSchema = z.object({
       telemetry: telemetrySchema.default({ enabled: true, format: "json" }),
       budget: budgetSchema.optional(),
     })
-    .passthrough(),
+    .passthrough()
+    .superRefine((tickleStick, ctx) => {
+      // Fail closed (tickle-stick#248): a configured budget needs explicit
+      // rates on every cheap-model stage, or the cap enforces against an
+      // estimate. Same check `new Pipeline(...)` runs on `budgetConfig`.
+      if (tickleStick.budget === undefined) return;
+      for (const [pipelineName, pipeline] of Object.entries(
+        tickleStick.pipelines,
+      )) {
+        pipeline.stages.forEach((stage, index) => {
+          const missing = missingBudgetRateKeys(stage);
+          if (missing.length === 0) return;
+          ctx.addIssue({
+            code: "custom",
+            message: budgetRatesMissingMessage(pipelineName, stage.name, missing),
+            path: ["pipelines", pipelineName, "stages", index, missing[0]],
+          });
+        });
+      }
+    }),
 });
 
 export type TickleStickConfig = z.infer<typeof tickleStickConfigSchema>;

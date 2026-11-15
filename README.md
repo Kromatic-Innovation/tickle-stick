@@ -375,10 +375,27 @@ returned by your `TriageProvider`.
 
 ## Budget & Alerts
 
-Cap cheap model spend and get notified when thresholds are crossed:
+Cap cheap model spend and get notified when thresholds are crossed. A
+budget requires **explicit per-token rates** (USD per token) on every
+cheap-model stage. Config load fails without them, and so does
+`new Pipeline(...)` with a `budgetConfig`. The error names the missing keys.
+Take the rates from your vendor's current pricing page, divided by
+1,000,000. The example below uses Claude Haiku 4.5's published rates
+($1 / $5 per million input / output tokens, as of 2026-11-15). See
+[docs/configuration.md](docs/configuration.md#per-token-rates-and-budgets)
+for more examples.
 
 ```yaml
 tickleStick:
+  pipelines:
+    triage:
+      stages:
+        - name: classify
+          type: model
+          provider: cheap
+          systemPrompt: "..."
+          costPerInputToken: 0.000001 # required when a budget is set
+          costPerOutputToken: 0.000005 # required when a budget is set
   budget:
     maxDailySpend: 1.00
     maxWeeklySpend: 5.00
