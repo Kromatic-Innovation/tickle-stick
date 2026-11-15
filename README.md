@@ -59,7 +59,7 @@ Scheduled Task (cron trigger from host)
 
 ## Requirements
 
-- **Node.js ≥ 20** (declared in `engines`).
+- **Node.js ≥ 22** (declared in `engines`).
 - **ESM-only.** Consumers must import, not `require()`.
 - **TypeScript consumers** must use `"moduleResolution": "bundler"` or
   `"node16"` (or newer) in `tsconfig.json`. The library ships `.js`-suffixed
