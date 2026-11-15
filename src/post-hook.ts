@@ -17,7 +17,9 @@ export function runPostHook(
       { timeout, encoding: "utf-8", maxBuffer: 10 * 1024 * 1024 },
       (error) => {
         if (error) {
-          reject(error);
+          // Node always passes a real Error here; ExecException's type merely
+          // omits ErrnoException's `code`, so it is not typed as one.
+          reject(error instanceof Error ? error : new Error(error.message));
         } else {
           resolve();
         }

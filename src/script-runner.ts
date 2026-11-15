@@ -76,6 +76,10 @@ export function runPipedScript(
     let stderrTail = "";
     let timedOut = false;
     let settled = false;
+    // `let`, not `const`: finish() above closes over it and is defined
+    // before the single assignment below; a `const` declared at that
+    // assignment would put finish()'s read in the temporal dead zone.
+    // eslint-disable-next-line prefer-const -- see the comment above
     let timer: ReturnType<typeof setTimeout> | undefined;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -218,11 +222,19 @@ function parseScriptOutput(
       // letting a property access on it throw and discard the whole batch.
       if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
         onError?.(
-          new Error(`script output element ${i} is not a WorkItem object; skipped`),
+          new Error(
+            `script output element ${i} is not a WorkItem object; skipped`,
+          ),
         );
         return;
       }
       const item = raw as Record<string, unknown>;
+      // String() over a JSON field keeps the existing coercion exactly as
+      // shipped: a nested object/array field stringifies to
+      // "[object Object]" / "a,b". Changing that is a behaviour change, out
+      // of scope for the lint pass (tickle-stick#251); disabled here, for
+      // this one push() only, rather than silently altered.
+      /* eslint-disable @typescript-eslint/no-base-to-string */
       items.push({
         id: String(item.id ?? `${keyPrefix}-item-${i}`),
         source: String(item.source ?? "unknown"),
@@ -237,6 +249,7 @@ function parseScriptOutput(
           ? new Date(String(item.timestamp))
           : new Date(),
       });
+      /* eslint-enable @typescript-eslint/no-base-to-string */
     });
     return items;
   } catch (err) {

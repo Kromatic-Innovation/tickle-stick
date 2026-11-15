@@ -108,6 +108,10 @@ export class HttpTriageProvider implements TriageProvider {
     const { body } = await this.fetchModelBody(text, systemPrompt, {
       throwOnError: true,
     });
+    // With `throwOnError: true`, fetchModelBody throws on every non-OK
+    // response, so this guard is unreachable EXCEPT when a 2xx response's
+    // JSON body is the literal `null` (tickle-stick#251 F15: marked, not
+    // removed, to keep that edge's behaviour unchanged).
     if (!body) return "";
     return this.extractText(body);
   }

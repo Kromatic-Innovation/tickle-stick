@@ -268,10 +268,12 @@ Or use the built-in `HttpTriageProvider` for OpenAI/Anthropic APIs:
 import { HttpTriageProvider } from "tickle-stick";
 
 const provider = new HttpTriageProvider({
-  apiKey: process.env.OPENAI_API_KEY!,
-  model: "gpt-4o-mini",
-  provider: "openai",
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+  model: "claude-haiku-4-5",
+  provider: "anthropic",
 });
+// OpenAI works the same way: provider: "openai" with an OpenAI model id.
+// Pin a model your vendor currently supports; check its deprecation page.
 ```
 
 ## Cheap vs. expensive stages

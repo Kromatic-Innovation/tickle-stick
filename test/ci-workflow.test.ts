@@ -140,8 +140,9 @@ describe("workflow token scope and Gitleaks hardening (tickle-stick#250)", () =>
     const job = (wf.jobs as Record<string, Record<string, unknown>>)[
       "oss-readiness"
     ];
-    const checkout = (job.steps as Array<Record<string, unknown>>).find((s) =>
-      String(s.uses ?? "").startsWith("actions/checkout@"),
+    const checkout = (job.steps as Array<Record<string, unknown>>).find(
+      (s) =>
+        typeof s.uses === "string" && s.uses.startsWith("actions/checkout@"),
     );
     expect(
       (checkout?.with as Record<string, unknown> | undefined)?.["fetch-depth"],

@@ -123,14 +123,25 @@ This avoids two inefficiencies:
 
 ## Error Handling
 
-The pipeline never throws. Each stage failure is caught and logged:
+`run()` does not throw for a stage failure. Tickle-stick itself logs nothing:
+each failure is caught and passed to the optional
+`onError(stage, err, phase)` callback on `PipelineOptions`. If no `onError`
+is supplied, the failure is visible only in the result.
 
-- **Script error** → returns [], pipeline may early-exit if first stage
-- **Model error** → item classified as "needs-reasoning" (escalates)
-- **Callback error** → logged, pipeline continues
-- **Post-hook error** → logged, does not fail the stage
+- **Script error** → `onError(stage, err, "stage")`, the stage contributes no
+  items and sets `StageResult.errored`, and the stage's telemetry event carries
+  `action: "error"`. If it was the first stage and produced no items, the
+  pipeline exits early.
+- **Model error** (cheap tier) → `onError(stage, err, "stage")`, and the item
+  is classified `needs-reasoning` (escalates). A provider that reports
+  `failureReason` also sets `StageResult.errored`.
+- **Callback error** → `onError(stage, err, "stage")`, and the pipeline
+  continues.
+- **Post-hook error** → `onError(stage, err, "post-hook")`. It does not fail
+  the stage.
 
-Config validation errors throw at startup (fail fast).
+Config errors do throw, at load time (`loadConfig`) or at `new Pipeline(...)`
+(fail fast).
 
 ## Provider Interface
 
@@ -140,6 +151,9 @@ Any model can be used for cheap classification by implementing `TriageProvider`:
 interface TriageProvider {
   readonly name: string;
   classify(text: string, systemPrompt: string): Promise<ClassificationResult>;
+  // Optional: raw model text for callers that do their own parsing.
+  // Throws on transport/HTTP errors instead of returning a sentinel.
+  classifyRaw?(text: string, systemPrompt: string): Promise<string>;
 }
 ```
 
