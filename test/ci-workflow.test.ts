@@ -72,9 +72,9 @@ describe("ci.yaml", () => {
 
   it("keeps the CI Required aggregate job", () => {
     const jobs = ci.jobs as Record<string, { name?: string }>;
-    expect(
-      Object.values(jobs).some((job) => job.name === "CI Required"),
-    ).toBe(true);
+    expect(Object.values(jobs).some((job) => job.name === "CI Required")).toBe(
+      true,
+    );
   });
 
   it("has no job or step conditional on the triggering event", () => {
@@ -99,6 +99,56 @@ describe("ci.yaml", () => {
   });
 });
 
+describe("workflow token scope and Gitleaks hardening (tickle-stick#250)", () => {
+  it("ci.yaml grants a read-only token at workflow level, with no job elevating it", () => {
+    const ci = loadWorkflow("ci.yaml");
+    expect(ci.permissions).toEqual({ contents: "read" });
+    const jobs = ci.jobs as Record<string, Record<string, unknown>>;
+    for (const [name, job] of Object.entries(jobs)) {
+      expect(
+        job.permissions,
+        `job ${name} declares no elevated permissions`,
+      ).toBeUndefined();
+    }
+  });
+
+  function gitleaksStep(): { env: Record<string, string>; run: string } {
+    const wf = loadWorkflow("oss-readiness.yml");
+    const job = (wf.jobs as Record<string, Record<string, unknown>>)[
+      "oss-readiness"
+    ];
+    const steps = job.steps as Array<Record<string, unknown>>;
+    const step = steps.find((s) => s.name === "Secret scan (Gitleaks)");
+    expect(step, "Gitleaks step exists").toBeDefined();
+    return step as unknown as { env: Record<string, string>; run: string };
+  }
+
+  it("verifies the Gitleaks tarball against a pinned sha256 before extracting or running it", () => {
+    const { env, run } = gitleaksStep();
+    expect(env.GITLEAKS_SHA256).toMatch(/^[0-9a-f]{64}$/);
+    const verify = run.indexOf("sha256sum -c");
+    expect(verify, "run verifies the checksum").toBeGreaterThan(-1);
+    expect(verify).toBeLessThan(run.indexOf("tar -xzf"));
+    expect(verify).toBeLessThan(run.indexOf("/tmp/gitleaks version"));
+  });
+
+  it("scans git history from a full-depth checkout (no --no-git)", () => {
+    const { run } = gitleaksStep();
+    expect(run).toContain("gitleaks detect");
+    expect(run).not.toContain("--no-git");
+    const wf = loadWorkflow("oss-readiness.yml");
+    const job = (wf.jobs as Record<string, Record<string, unknown>>)[
+      "oss-readiness"
+    ];
+    const checkout = (job.steps as Array<Record<string, unknown>>).find((s) =>
+      String(s.uses ?? "").startsWith("actions/checkout@"),
+    );
+    expect(
+      (checkout?.with as Record<string, unknown> | undefined)?.["fetch-depth"],
+    ).toBe(0);
+  });
+});
+
 describe("dependabot-auto-merge.yml", () => {
   const workflow = loadWorkflow("dependabot-auto-merge.yml");
 
@@ -108,7 +158,9 @@ describe("dependabot-auto-merge.yml", () => {
       { steps: { name?: string; if?: string; env?: Record<string, string> }[] }
     >;
     const steps = Object.values(jobs).flatMap((job) => job.steps);
-    const merge = steps.find((step) => step.name?.includes("Enable auto-merge"));
+    const merge = steps.find((step) =>
+      step.name?.includes("Enable auto-merge"),
+    );
 
     expect(merge, "the auto-merge step is present").toBeDefined();
 

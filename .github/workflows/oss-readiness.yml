@@ -30,6 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the Gitleaks step scans every commit, not just the
+          # working tree (tickle-stick#250). A shallow clone would hide a
+          # secret that was committed and later deleted.
+          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -62,15 +67,23 @@ jobs:
           # Pinned Gitleaks release. Run the binary directly rather than the
           # marketplace action to avoid the action's org-license gate and to
           # keep the tool version explicit (no mutable action tag).
-          GITLEAKS_VERSION: 8.28.0
+          GITLEAKS_VERSION: 8.30.1
+          # sha256 of gitleaks_8.30.1_linux_x64.tar.gz, copied from the
+          # release's published gitleaks_8.30.1_checksums.txt. Bump this
+          # together with GITLEAKS_VERSION. The tarball is verified BEFORE it
+          # is extracted or executed (tickle-stick#250).
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
           set -euo pipefail
-          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSL "$url" -o /tmp/gitleaks.tar.gz
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          curl -fsSL "$url" -o "/tmp/${tarball}"
+          echo "${GITLEAKS_SHA256}  /tmp/${tarball}" | sha256sum -c -
+          tar -xzf "/tmp/${tarball}" -C /tmp gitleaks
           /tmp/gitleaks version
-          # --no-git scans the working tree (robust against shallow PR checkouts).
-          /tmp/gitleaks detect --no-git --source . --redact --no-banner
+          # Git mode: scans every commit in the full-depth checkout above,
+          # so a secret committed and later removed is still caught.
+          /tmp/gitleaks detect --source . --redact --no-banner
 
       - name: Packaging hygiene (npm)
         run: |
