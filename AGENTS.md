@@ -38,15 +38,10 @@ It intercepts inbound messages and triages them through a 4-tier pipeline:
 (Internal contributors: see `AGENTS.local.md` for the internal promotion model
 and repo-metadata references.)
 
-## Spec-driven development
-
-All implementation follows `.specify/specs/tickle-stick-core/`.
-Read `spec.md` for scope, `plan.md` for architecture, `contracts/` for interfaces.
-
 ## Testing
 
 - Unit tests in `test/` using Vitest
-- All tiers, config, interceptor, and providers must have test coverage
+- All tiers, config, and providers must have test coverage
 - Run: `npm test`
 
 ## Key conventions

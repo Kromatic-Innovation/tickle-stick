@@ -16,11 +16,6 @@ Band rationale: `code-workspace-config/docs/strategy/portfolio.md`. Canonical
 strategy: `code-workspace-config/docs/strategy/README.md`. Strategy is stated in
 prose there and nowhere else — do not restate or paraphrase it here.
 
-## Spec
-
-All implementation is spec-driven. Read `.specify/specs/tickle-stick-core/`
-before making changes.
-
 ## Commands
 
 - `npm test` — run all tests
