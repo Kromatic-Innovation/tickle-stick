@@ -70,7 +70,9 @@ describe("HttpTriageProvider", () => {
         { role: "system", content: "Classify this." },
         { role: "user", content: "hello" },
       ]);
-      expect(body.max_tokens).toBe(256);
+      // tickle-stick#252: current OpenAI models reject `max_tokens` (400).
+      expect(body.max_completion_tokens).toBe(256);
+      expect(body).not.toHaveProperty("max_tokens");
     });
 
     it("parses response and extracts token usage", async () => {
@@ -171,6 +173,10 @@ describe("HttpTriageProvider", () => {
       expect(body.model).toBe("claude-haiku-4-5-20251001");
       expect(body.system).toBe("Classify.");
       expect(body.messages).toEqual([{ role: "user", content: "hi" }]);
+      // The Anthropic Messages API still takes `max_tokens` (tickle-stick#252
+      // renamed the OpenAI field only).
+      expect(body.max_tokens).toBe(256);
+      expect(body).not.toHaveProperty("max_completion_tokens");
     });
 
     it("extracts Anthropic token usage", async () => {
@@ -281,6 +287,62 @@ describe("HttpTriageProvider", () => {
       const result = await provider.classify("hi", "Classify.");
       expect(result.failureReason).toContain("max_tokens");
       expect(result.tokenUsage).toBeUndefined();
+    });
+  });
+
+  describe("OpenAI reasoning-budget truncation (tickle-stick#252)", () => {
+    it("classify degrades to needs-reasoning with failureReason and charges tokens when finish_reason is length with no content", async () => {
+      mockFetchResponse({
+        choices: [{ message: { content: "" }, finish_reason: "length" }],
+        usage: { prompt_tokens: 30, completion_tokens: 256 },
+      });
+
+      const provider = makeProvider({ provider: "openai", model: "o3" });
+      const result = await provider.classify("hi", "Classify.");
+
+      expect(result.classification).toBe("needs-reasoning");
+      expect(result.confidence).toBe(0);
+      expect(result.failureReason).toContain("finish_reason: length");
+      expect(result.tokenUsage).toEqual({ input: 30, output: 256 });
+    });
+
+    it("classifyRaw throws when finish_reason is length and content is null", async () => {
+      mockFetchResponse({
+        choices: [{ message: { content: null }, finish_reason: "length" }],
+      });
+
+      const provider = makeProvider({ provider: "openai" });
+      await expect(provider.classifyRaw("hi", "Classify.")).rejects.toThrow(
+        /max_completion_tokens/,
+      );
+    });
+
+    it("still returns partial text when finish_reason is length but content is present", async () => {
+      mockFetchResponse({
+        choices: [
+          {
+            message: {
+              content: '{"classification":"routine","confidence":0.9}',
+            },
+            finish_reason: "length",
+          },
+        ],
+      });
+
+      const provider = makeProvider({ provider: "openai" });
+      const result = await provider.classify("hi", "Classify.");
+
+      expect(result.failureReason).toBeUndefined();
+      expect(result.confidence).toBe(0.9);
+    });
+
+    it("returns empty text without a failureReason when finish_reason is stop", async () => {
+      mockFetchResponse({
+        choices: [{ message: { content: "" }, finish_reason: "stop" }],
+      });
+
+      const provider = makeProvider({ provider: "openai" });
+      await expect(provider.classifyRaw("hi", "Classify.")).resolves.toBe("");
     });
   });
 
@@ -451,7 +513,8 @@ describe("HttpTriageProvider", () => {
       const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
       const body = JSON.parse(init.body as string);
-      expect(body.max_tokens).toBe(256);
+      expect(body.max_completion_tokens).toBe(256);
+      expect(body).not.toHaveProperty("max_tokens");
     });
 
     it("respects custom maxTokens", async () => {
@@ -471,7 +534,8 @@ describe("HttpTriageProvider", () => {
       const [, init] = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
         .calls[0];
       const body = JSON.parse(init.body as string);
-      expect(body.max_tokens).toBe(128);
+      expect(body.max_completion_tokens).toBe(128);
+      expect(body).not.toHaveProperty("max_tokens");
     });
   });
 });

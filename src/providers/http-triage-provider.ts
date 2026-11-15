@@ -162,7 +162,10 @@ export class HttpTriageProvider implements TriageProvider {
         },
         body: JSON.stringify({
           model: this.options.model,
-          max_tokens: this.options.maxTokens,
+          // OpenAI's current models (gpt-5 family, o-series, gpt-6) reject
+          // `max_tokens` with a 400; `max_completion_tokens` is accepted by
+          // every model, including the 4o family (live check, tickle-stick#252).
+          max_completion_tokens: this.options.maxTokens,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userMessage },
@@ -199,9 +202,21 @@ export class HttpTriageProvider implements TriageProvider {
   private extractText(body: Record<string, unknown>): string {
     if (Array.isArray(body.choices)) {
       const first = body.choices[0] as
-        | { message?: { content?: string } }
+        | { message?: { content?: string | null }; finish_reason?: string }
         | undefined;
-      return first?.message?.content ?? "";
+      const content = first?.message?.content;
+      if (content) return content;
+      // Reasoning models (gpt-5 family, o-series) can spend the whole
+      // max_completion_tokens budget on hidden reasoning and return no text
+      // with finish_reason "length". Mirror the Anthropic max_tokens branch
+      // below so this surfaces as a failureReason rather than a silent
+      // needs-reasoning/confidence-0 result (tickle-stick#252, Seer finding).
+      if (first?.finish_reason === "length") {
+        throw new Error(
+          `${this.options.provider} response truncated at max_completion_tokens (finish_reason: length) with no text content`,
+        );
+      }
+      return "";
     }
     if (Array.isArray(body.content)) {
       // Anthropic responses can lead with a `thinking` block when adaptive
