@@ -495,13 +495,15 @@ if (status) {
 }
 ```
 
-## Public-beta notice (0.6.x)
+## Public-beta notice (0.7.x)
 
-Tickle-stick 0.6.x is a **public beta**. The core pipeline contract
-(`Pipeline`, `TriageProvider`, `StorageAdapter`, YAML schema) is stable,
-but a handful of internal-plumbing exports and config edge cases are still
+Tickle-stick 0.7.x is a **public beta**. The core pipeline contract
+(`Pipeline`, `TriageProvider`, `StorageAdapter`, YAML schema) is stable
+within 0.7.x (0.7.0 itself tightened config validation), but a handful of internal-plumbing exports and config edge cases are still
 being narrowed before 1.0. Under pre-1.0 SemVer, treat any `0.x` bump as
 potentially breaking — see the [CHANGELOG](CHANGELOG.md) before upgrading.
+Coming from 0.6.x? 0.7.0 contains several breaking changes; follow the
+[Upgrading from 0.6.x](CHANGELOG.md#upgrading-from-06x) checklist.
 The [1.0 tracking issue](https://github.com/Kromatic-Innovation/tickle-stick/issues/34)
 has the full yellow-flag list.
 

@@ -7,18 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+## [0.7.0] - 2026-11-15
 
-- **BREAKING — Node.js 22 is now the minimum supported version.** Node 20
-  reached end-of-life, so `engines.node` rises from `>=20` to `>=22`. CI now
-  tests on Node 22 and 24, with coverage thresholds and the dependency audit
-  enforced on Node 22. Installing on Node 20 now triggers npm's engines
-  warning (or an error under `engine-strict`). Upgrade to Node 22 or later.
-  The release workflow already publishes on Node 22 (synced template).
-  (#249, released as 0.7.0 alongside the other breaking changes)
+Breaking release under pre-1.0 SemVer. Five changes can break an existing
+install or config; they are consolidated under **Breaking** below, and the
+**Upgrading from 0.6.x** checklist says what to do about each.
 
-- **BREAKING — a configured budget now requires explicit per-token rates.**
-  When `tickleStick.budget` is set, every cheap-model stage must set both
+### Breaking
+
+- **Node.js 22 is now the minimum supported version.** Node 20 reached
+  end-of-life, so `engines.node` rises from `>=20` to `>=22`. CI now tests on
+  Node 22 and 24, with coverage thresholds and the dependency audit enforced
+  on Node 22. Installing on Node 20 now triggers npm's engines warning (or an
+  error under `engine-strict`). Upgrade to Node 22 or later. The release
+  workflow already publishes on Node 22 (synced template). (#249)
+- **A configured budget now requires explicit per-token rates.** When
+  `tickleStick.budget` is set, every cheap-model stage must set both
   `costPerInputToken` and `costPerOutputToken` (USD per token). Otherwise
   `loadConfig` / `loadConfigFromString` fail with an error naming the
   pipeline, stage and missing keys. `new Pipeline(...)` throws the same
@@ -33,8 +37,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are unchanged, but they are now labelled as a rough estimate and apply
   only when no budget is configured (telemetry `costEstimate` only). Ships
   with the double-count fix (#254) so the effective cap changes once.
-  Configs without a budget are unaffected. (#248, semver-major in intent;
-  released as 0.7.0 under 0.x rules)
+  Configs without a budget are unaffected. (#248)
+- **Stage definitions are now validated with `.strict()`.** Any key not in
+  the documented stage schema (including a previously-silently-stripped
+  typo such as `systemprompt:` or `confidenceThreshhold:`) now fails config
+  load instead of being dropped. If your config loaded successfully before
+  and relied on an extra key being ignored, it will now throw; remove or
+  correct the key. A cheap-model stage with no `systemPrompt`, a script
+  stage with no `command`, and a budget alert `at` string that is not
+  numeric (e.g. `"eighty%"`) also fail config load now, naming the bad key
+  or value. This repo's own demo config (`config/tickle-stick.yaml`) and
+  every full config example in `README.md` were re-verified against the
+  stricter schema and still load unchanged. (#243)
+- **`new Pipeline(...)` now throws on cheap-model wiring gaps.** A `model`
+  stage with `provider: "cheap"` and no `systemPrompt`, or a pipeline
+  containing such a stage but no `triageProvider`, now throws at
+  construction instead of silently skipping at runtime. This is enforced
+  at construction time regardless of the config-load validation in #243.
+  (#241)
+- **`TelemetryEvent.granularity` is a new required field**
+  (`"call" | "stage"`). Code that constructs a `TelemetryEvent` object
+  literal directly (a hand-built replay/test fixture, for example) needs
+  updating; a `StorageAdapter.writeEvent(event)` implementation that only
+  *reads* fields off the `event` it's handed needs no change. The other
+  new telemetry fields are optional and non-breaking. See the double-count
+  fix under Fixed for the behaviour change this accompanies. (#254)
+
+### Behaviour changes
+
+Not API breaks, but your runtime behaviour or stored data can differ after
+upgrading. Details are under Fixed.
+
+- **Urgency escalation (#247):** a `routine` verdict is now escalated to
+  `needs-reasoning` whenever the item's own `summary`/`body` mentions
+  urgency, so such items always reach the expensive tier; the cheap-tier
+  prompt also gains untrusted-text fences and the classifier-response
+  parser is stricter.
+- **Aggregate cost row dropped (#254):** the per-stage aggregate telemetry
+  event no longer carries cost, so `StorageAdapter` implementations see only
+  per-item cost rows; recorded spend and budget caps now reflect the real
+  estimate instead of 2x.
+
+### Upgrading from 0.6.x
+
+- [ ] **Node:** run on Node 22 or later (#249).
+- [ ] **Budgets:** if `tickleStick.budget` is set, add `costPerInputToken`
+      and `costPerOutputToken` (USD per token) to every cheap-model stage
+      (#248).
+- [ ] **Stage config:** remove or fix any unknown or misspelled stage key;
+      give every cheap-model stage a `systemPrompt` and every script stage
+      a `command`; make budget alert `at` values numeric percentages (#243).
+- [ ] **Pipeline wiring:** pass a `triageProvider` and a `systemPrompt` to
+      any `new Pipeline(...)` that has a `provider: "cheap"` stage (#241).
+- [ ] **Telemetry:** add `granularity: "call"` (per-item) or `"stage"`
+      (per-stage rollup) to any `TelemetryEvent` literal you construct (#254).
+- [ ] **Behaviour changes:** review the two items under Behaviour changes
+      (#247, #254) against any consumer of triage results or cost rows.
+- [ ] **Stored spend:** a `SUM` over cost rows written by 0.6.x still
+      double-counts; prune or ignore those rows (#254).
+- [ ] **Deep imports:** if you imported `src/providers/provider.ts`, import
+      from the package root instead (see Removed).
+
+### Removed
+
+- **`src/providers/provider.ts` barrel deleted.** It was a dead re-export
+  shim (`TriageProvider`, `ClassificationResult`,
+  `parseClassificationResponse`, `HttpTriageProvider`) that nothing in the
+  package imported and that the `exports` map never exposed; the same
+  symbols are available from the package root. Only a consumer deep-importing
+  the file out of the published `src/` tree is affected.
 
 ### Fixed
 
@@ -82,14 +153,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   downstream callback stage with `input: "all"` still sees them), a
   telemetry event names the budget as the skip reason, and `onError`
   fires once per skipped stage. Previously this was a bare, unobserved
-  `return` in `StageRouter`. **Breaking:** a `model` stage with
-  `provider: "cheap"` and no `systemPrompt`, or a pipeline containing such
-  a stage but no `triageProvider`, now throws at `new Pipeline(...)`
-  instead of silently skipping at runtime — this ties to the
-  strict-schema validation in #243 but is enforced here at construction
-  time regardless. The README's budget pass-through sentence is rewritten
-  to match. A cheap-model stage that's already mid-batch when the cap
-  trips now reports the cut the same way instead of silently exiting the
+  `return` in `StageRouter`. The construction-time guard for missing
+  `systemPrompt` / `triageProvider` wiring is listed under **Breaking**.
+  The README's budget pass-through sentence is rewritten to match. A
+  cheap-model stage that's already mid-batch when the cap trips now reports the cut the same way instead of silently exiting the
   loop: items already classified are still retained, but one telemetry
   event (naming `"budget"` as the reason, with classified/skipped counts)
   and one `onError` call now fire for the stage. (#241, semver-minor)
@@ -101,20 +168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `systemPrompt` or a script stage with no `command` behaved the same way.
   Budget alert `at` strings (e.g. `"eighty%"`) parsed to `NaN` and the alert
   never fired. All four now throw a config-load error naming the bad key or
-  value. (tickle-stick#243)
-
-  **⚠️ BREAKING for configs carrying extra/misspelled stage keys.** Stage
-  definitions are now validated with `.strict()` — any key not in the
-  documented stage schema (including a previously-silently-stripped typo)
-  now fails config load instead of being dropped. If your config loaded
-  successfully before and relied on an extra key being ignored, it will now
-  throw; remove or correct the key. This repo's own demo config
-  (`config/tickle-stick.yaml`) and every full config example in `README.md`
-  were re-verified against the stricter schema and still load unchanged.
-  Construction-time guards for missing provider/systemPrompt wiring in
-  `src/pipeline.ts` / `src/pipeline/stage-router.ts` are a separate,
-  complementary check (tickle-stick#241) — this change is config-load-time
-  only.
+  value. The `.strict()` stage validation that makes this breaking is
+  listed under **Breaking**. (#243)
 - **Cheap-tier prompt shape fenced, classifier-response parsing hardened,
   and a non-skippable urgency escalation added, against item-text prompt
   injection** — `tier1-triage.ts` now wraps the item text (`summary`/
@@ -147,8 +202,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Deliberately fail-open: an item whose own text merely uses the word
   "urgent" (e.g. ordinary marketing mail) now always reaches the expensive
   tier even when the model genuinely says `routine`; no config key is
-  provided to opt out. (#247, semver-minor)
-  to match. (#241, semver-minor)
+  provided to opt out. Listed under **Behaviour changes**. (#247, semver-minor)
 - **Spend was recorded twice per classified item — once per item, once per
   stage** — the cheap-tier stage emitted a costed telemetry event for every
   classified item, and `Pipeline.run()` then emitted a second, stage-level
@@ -177,12 +231,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only a `costSource: "default-estimate"` event gets the
   `metadata.reason: "default-cost-estimate"` visible-reason note, so the
   fallback is never a silent default.
-  **Breaking:** `TelemetryEvent.granularity` is a new **required** field —
-  code that constructs a `TelemetryEvent` object literal directly (a
-  hand-built replay/test fixture, for example) needs updating; a
-  `StorageAdapter.writeEvent(event)` implementation that only *reads*
-  fields off the `event` it's handed needs no change. The other new fields
-  above are optional and non-breaking. **Behaviour change for
+  The required `granularity` field is listed under **Breaking** and the
+  dropped aggregate cost row under **Behaviour changes**; the other
+  new fields above are optional and non-breaking. **Behaviour change for
   `StorageAdapter` implementers:** dropping the aggregate cost row means
   fewer cost-bearing rows are written per run — a per-stage latency/cost
   consumer that read the aggregate row for its cost now sees only the
@@ -190,7 +241,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `costEstimate` since a given ISO timestamp) are unchanged. **A `SUM`
   over rows already written by a pre-fix version still double-counts**
   until those rows are pruned — this change does not rewrite or backfill
-  stored history. (#254, semver-minor)
+  stored history. (#254)
 - **A piped script stage no longer deadlocks on heavy stderr, and a child
   that ignores SIGTERM no longer hangs the stage forever** — `runPipedScript`
   spawned the child with stderr piped but never read it, so a script writing
@@ -651,6 +702,8 @@ stabilization in
   489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
   prune, asymmetric provider API.
 
+[Unreleased]: https://github.com/Kromatic-Innovation/tickle-stick/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Kromatic-Innovation/tickle-stick/compare/v0.6.7...v0.7.0
 [0.6.7]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.7
 [0.6.6]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.6
 [0.6.5]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.5
