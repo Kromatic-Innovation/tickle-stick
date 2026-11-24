@@ -25,7 +25,7 @@ behaviour changes to the published API, and no breaking changes.
 - **`SECURITY.md` and `CONTRIBUTING.md`.** `SECURITY.md` no longer promises
   supported versions, patches or response times; reports are handled
   best-effort, through GitHub private vulnerability reporting or the contact
-  form. The `team@kromatic.com` address was removed. `CONTRIBUTING.md` now says
+  form. The old team mailbox was removed as a reporting channel. `CONTRIBUTING.md` now says
   issues and pull requests are reviewed best-effort. `docs/security-posture.md`
   has maintenance-mode wording and current dependency and action pins.
 - **JSDoc.** The `stageCallbacks` deprecation comment in `src/pipeline.ts` no
