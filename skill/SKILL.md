@@ -247,7 +247,7 @@ Read config, find the control group, create/update a cron task with
 
 Register an `expensiveStageProvider` entry (keyed by stage name) for each
 expensive-model and callback stage. (`stageCallbacks` is the deprecated
-alias, still honored until 1.0; new code should not use it.)
+alias, still honored; new code should not use it.)
 
 **Closure pattern** for passing data between stages:
 
