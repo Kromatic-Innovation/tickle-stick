@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-24
+
+Final maintenance release. Tickle-stick is no longer under active
+development; this release contains documentation changes and a
+development-dependency security fix only. There are no changes to the
+published API, and no breaking changes.
+
+### Changed
+
+- **Project status.** The README now states that tickle-stick is in
+  maintenance mode, that 0.7.1 is the final maintenance release, and how to
+  reach the maintainer to take over the package or ask for support. The
+  "Public-beta notice" became a "Stability notice", and wording that promised
+  future work before 1.0 was removed. The deprecated `stageCallbacks` alias
+  is still honored; it is no longer scheduled for removal in 1.0.
+
+### Security
+
+- Bumped `eslint` and `typescript-eslint` (development dependencies only) to
+  clear a `minimatch` ReDoS advisory. The published package is unaffected.
+  (#296)
+
 ## [0.7.0] - 2026-11-15
 
 Breaking release under pre-1.0 SemVer. Five changes can break an existing
@@ -702,7 +724,8 @@ stabilization in
   489-line `Pipeline` class, unvalidated input-filter DSL, opt-in budget
   prune, asymmetric provider API.
 
-[Unreleased]: https://github.com/Kromatic-Innovation/tickle-stick/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Kromatic-Innovation/tickle-stick/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/Kromatic-Innovation/tickle-stick/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/Kromatic-Innovation/tickle-stick/compare/v0.6.7...v0.7.0
 [0.6.7]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.7
 [0.6.6]: https://github.com/Kromatic-Innovation/tickle-stick/releases/tag/v0.6.6

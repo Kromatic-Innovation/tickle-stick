@@ -4,16 +4,13 @@
 > of the OSS package) for internal policy and tooling references that don't
 > belong in the public repo.
 
-## Strategy tier
+## Maintenance mode
 
-**T0.** Pipeline and budget primitives the scheduled routines are built on.
+Tickle-stick is in maintenance mode; 0.7.1 is the final planned release.
 
-**T0 expiry condition:** work here must name the specific T1 or T2 item it
-unblocks.
-
-Band rationale: `code-workspace-config/docs/strategy/portfolio.md`. Canonical
-strategy: `code-workspace-config/docs/strategy/README.md`. Strategy is stated in
-prose there and nowhere else — do not restate or paraphrase it here.
+- Bug fixes and security fixes only. No feature work.
+- No autonomous or scheduled build work against this repo.
+- Docs corrections are welcome.
 
 ## GitHub
 
@@ -51,44 +48,17 @@ and repo-metadata references.)
 - YAML config with env var interpolation
 - Structured JSON logging for telemetry
 
-## Downstream consumers — breaking-change discipline (REQUIRED)
+## Published surface
 
-Tickle-stick is a SUBSTRATE: other repos compose against its published surface
-(work-item shape, the `provider.classify(text, systemPrompt)` call + the exact
-`text` it receives, tier behavior/return shapes, config schema, hooks). A change
-here can silently break a consumer that catches/swallows errors.
-
-**Before merging ANY change to the published surface or pipeline contract
-(not just releases), you MUST:**
-
-1. **Enumerate downstream consumers** — every repo that imports or composes
-   against this package.
-2. **Check each consumer against the change.** Pay special attention to the
-   `text` passed into `provider.classify` (consumers may `JSON.parse` it),
-   work-item/`summary` shape, and tier return contracts.
-3. **File a GitHub issue in the CONSUMER's repo** for anything that might break,
-   linking the tickle-stick change, BEFORE the consumer can silently rot. A
-   silent break is worse than a loud one.
-4. Bump the version per semver — a contract change is a MAJOR (or at least
-   MINOR-with-migration-note), never a silent patch.
-
-_Why this exists: a past change that prepended extra context to the classifier
-input broke a downstream consumer's `JSON.parse(text)` silently (the throw was
-swallowed), disabling its cheap-model tier for ~a month before anyone noticed._
-
-**Consumers and the release-before-deploy contract:** tickle-stick is published
-to npm as `tickle-stick`; its fleet consumers are **voltaire** — the
-machine-readable edge is `consumedBy` on the tickle-stick entry of cwc's
-`docs/project-registry.yaml`, so keep this note and that edge discoverable
-together. A change here is **not live for a consumer until it is (1) published
-to npm AND (2) that consumer's dependency pin is bumped** to admit the new
-version. Merging and promoting to `main` here can read green while a consumer
-keeps running the old pinned line — the fix is not deployed for them until the
-pin moves.
+Other projects may compose against the published surface (work-item shape, the
+`provider.classify(text, systemPrompt)` call and the exact `text` it receives,
+tier behavior and return shapes, config schema, hooks). In maintenance mode,
+do not change that surface; a fix that would alter it needs an explicit,
+documented decision and a version bump per semver.
 
 ## Release process
 
-Tickle-stick is slated for OSS release. The published surface includes the
+The published surface includes the
 package itself **and** its installation hooks (cron, services, launchd) —
 release review must walk the install path, not just the code.
 

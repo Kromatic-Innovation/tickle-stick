@@ -5,16 +5,10 @@
 Tickle-stick: cost-hierarchy extension for agentic workflows.
 4-tier triage pipeline: deterministic → cheap model → full agent → human.
 
-## Strategy tier
+## Maintenance mode
 
-**T0.** Pipeline and budget primitives the scheduled routines are built on.
-
-**T0 expiry condition:** work here must name the specific T1 or T2 item it
-unblocks.
-
-Band rationale: `code-workspace-config/docs/strategy/portfolio.md`. Canonical
-strategy: `code-workspace-config/docs/strategy/README.md`. Strategy is stated in
-prose there and nowhere else — do not restate or paraphrase it here.
+In maintenance mode: bug and security fixes only, no feature work. See
+`AGENTS.md`.
 
 ## Commands
 
