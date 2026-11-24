@@ -2,9 +2,11 @@
 
 ## Supported versions
 
-Tickle-stick is pre-1.0. Only the latest release on `main` is supported with
-security patches. Fixes land on `develop` first and are promoted to `main`
-via the `Promote Main` workflow.
+Tickle-stick is in maintenance mode and 0.7.1 is the final release. No further
+releases are planned, so there is no supported-version window and no
+security-patch commitment. Reports are handled on a best-effort basis; if a
+fix is made, it lands on `develop` first and is promoted to `main` via the
+`Promote Main` workflow, but it is not guaranteed to be published to npm.
 
 ### Dependabot alerts closed without a fix
 
@@ -21,9 +23,14 @@ misclassified alert is exactly the kind of thing we want to hear about.
 
 ## Reporting a vulnerability
 
-Please report security vulnerabilities privately via email to
-**team@kromatic.com** with the subject prefix `[tickle-stick security]`.
-Do **not** open a public GitHub issue for security problems.
+Please report security vulnerabilities privately, and do **not** open a public
+GitHub issue for security problems:
+
+- Preferred: use GitHub's
+  [private vulnerability reporting](https://github.com/Kromatic-Innovation/tickle-stick/security/advisories/new)
+  for this repository.
+- Alternative: use the contact form at <https://tristankromer.com>, and start
+  your message with `[tickle-stick security]`.
 
 Include:
 
@@ -31,12 +38,9 @@ Include:
 - Steps to reproduce (ideally a minimal failing test or PoC).
 - Affected version or commit SHA.
 
-We aim to:
-
-- Acknowledge your report within 3 business days.
-- Confirm the vulnerability (or explain why it isn't one) within 10
-  business days.
-- Ship a fix and public advisory within 30 business days of confirmation.
+Reports are handled best-effort, with no response-time commitment. If you need
+a fix you can rely on, or want to take over the package, use the contact form
+above.
 
 ## Scope
 

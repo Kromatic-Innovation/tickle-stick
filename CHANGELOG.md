@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.1] - 2026-11-24
 
 Final maintenance release. Tickle-stick is no longer under active
-development; this release contains documentation changes and a
-development-dependency security fix only. There are no changes to the
-published API, and no breaking changes.
+development; this release contains documentation and comment corrections, CI
+action pin bumps, and a development-dependency security fix. There are no
+behaviour changes to the published API, and no breaking changes.
 
 ### Changed
 
@@ -22,6 +22,16 @@ published API, and no breaking changes.
   "Public-beta notice" became a "Stability notice", and wording that promised
   future work before 1.0 was removed. The deprecated `stageCallbacks` alias
   is still honored; it is no longer scheduled for removal in 1.0.
+- **`SECURITY.md` and `CONTRIBUTING.md`.** `SECURITY.md` no longer promises
+  supported versions, patches or response times; reports are handled
+  best-effort, through GitHub private vulnerability reporting or the contact
+  form. The `team@kromatic.com` address was removed. `CONTRIBUTING.md` now says
+  issues and pull requests are reviewed best-effort. `docs/security-posture.md`
+  has maintenance-mode wording and current dependency and action pins.
+- **JSDoc.** The `stageCallbacks` deprecation comment in `src/pipeline.ts` no
+  longer says the alias will be removed in 1.0 (comment-only change).
+- **CI.** `actions/setup-node` v7.0.0 to v7.1.0 in `release.yml`, and
+  `actions/create-github-app-token` v3.3.0 to v3.4.0 in `promote-main.yml`.
 
 ### Security
 

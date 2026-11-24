@@ -296,7 +296,7 @@ The two kinds of `type: model` stage wire to different host-supplied mechanisms:
   callback receives filtered items and the rendered prompt; it returns a
   string. Keyed by stage name so you can wire multiple expensive stages
   independently. (The legacy option name `stageCallbacks` is still honored
-  as a deprecated alias and is still honored.)
+  as a deprecated alias.)
 
 The asymmetry is deliberate: cheap stages share a classifier contract; expensive
 stages are free-form per-stage reasoning calls.
@@ -508,10 +508,10 @@ if (status) {
 
 The core pipeline contract (`Pipeline`, `TriageProvider`, `StorageAdapter`,
 YAML schema) is stable within 0.7.x (0.7.0 itself tightened config
-validation). A handful of internal-plumbing exports and config edge cases may
-still be rough; they will not be narrowed further, because the project is in
-maintenance mode (see [Project status](#project-status)). Under pre-1.0
-SemVer, treat any `0.x` bump as potentially breaking, and see the
+validation). Anything not documented in this README, including undocumented
+exports and config edge cases, is unsupported and may be rough; it will not
+be refined, because the project is in maintenance mode (see
+[Project status](#project-status)). Under pre-1.0 SemVer, treat any `0.x` bump as potentially breaking, and see the
 [CHANGELOG](CHANGELOG.md) before upgrading. Coming from 0.6.x? 0.7.0 contains
 several breaking changes; follow the
 [Upgrading from 0.6.x](CHANGELOG.md#upgrading-from-06x) checklist.

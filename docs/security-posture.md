@@ -1,8 +1,8 @@
 # Security & Dependency Maintenance Posture
 
-Last reviewed: 2026-11-15. Next scheduled review: **2027-02-15**.
+Last reviewed: 2026-11-24. The project is in maintenance mode; there are no scheduled reviews.
 
-This document records the **maintenance posture** for `tickle-stick` — how dependency upgrades flow, what the auto-merge gate covers, and what the quarterly review checklist looks like. The **vulnerability-reporting policy** lives in [`SECURITY.md`](../SECURITY.md) at the repo root; that file is the public-facing entry point for security reporters. This document is the internal maintenance counterpart.
+This document records the **maintenance posture** for `tickle-stick` — how dependency upgrades flow, what the auto-merge gate covers, and what the maintenance-mode policy is. The **vulnerability-reporting policy** lives in [`SECURITY.md`](../SECURITY.md) at the repo root; that file is the public-facing entry point for security reporters. This document is the internal maintenance counterpart.
 
 ## 1. Distribution shape (the load-bearing fact)
 
@@ -38,7 +38,7 @@ The threat surface tracked by `SECURITY.md` (command injection, prompt injection
 
 ## 3. Dependency-upgrade policy
 
-This repo follows the workspace **maintenance-posture playbook** originally documented in `plinkromatic/docs/security-posture.md`, tightened for the OSS library surface.
+This repo follows a conservative maintenance posture, tightened for the OSS library surface.
 
 ### 3.1 Patch and minor bumps (Dependabot)
 
@@ -60,24 +60,26 @@ Closed by default. Disposition is one of:
 - **Schedule a focused upgrade PR** — major bumps to `yaml` or `zod` are user-facing API changes for consumers and deserve a CHANGELOG entry.
 - **Close** with a comment citing this document and a re-open trigger.
 
-Current majors of note (as of 2026-11-15, from `package-lock.json`): `yaml` 2.x (2.9.1), `zod` 4.x (4.6.7), TypeScript 6.x (6.0.3), ESLint 10.x (10.14.0, flat config), Vitest 5.x (5.1.0), Node >=22 (`engines.node`; CI tests Node 22 and 24).
+Current majors of note (as of 2026-11-24, from `package-lock.json`): `yaml` 2.x (2.9.1), `zod` 4.x (4.6.7), TypeScript 6.x (6.0.3), ESLint 10.x (10.15.0, flat config), Vitest 5.x (5.1.1), Node >=22 (`engines.node`; CI tests Node 22 and 24).
 
-### 3.3 Quarterly review checkpoint
+### 3.3 Maintenance mode
 
-The watch-only review cadence is **quarterly** (next: 2027-02-15). At each checkpoint:
+Tickle-stick is in maintenance mode and 0.7.1 is the final release. There is
+no quarterly review cadence. Security fixes are best-effort (see
+[`SECURITY.md`](../SECURITY.md)). When a fix is made:
 
-1. Review moderate/low `npm audit` findings. High and critical findings already fail CI (§4.1).
-2. Skim the `yaml` and `zod` changelogs for parser / validation behavior changes that may affect consumers.
-3. Confirm `files` in `package.json` still ships only the intended subset (no test fixtures, no .env, no internal docs).
-4. Confirm `release.yml` uses pinned action SHAs (or at least pinned tags) for the npm publish step.
-5. Re-read `SECURITY.md` §"Scope" against the current code — are there any new threat-surface classes the library has grown into that should be documented?
+1. Keep moderate/low `npm audit` findings in dev tooling in context; high and
+   critical findings fail CI (§4.1).
+2. Confirm `files` in `package.json` still ships only the intended subset (no
+   test fixtures, no .env, no internal docs).
+3. Confirm `release.yml` uses pinned action SHAs for the npm publish step.
 
-#### 2026-11-15 review notes
+#### Last review notes (2026-11-15)
 
 1. **`npm audit`:** full audit reports 8 moderate, 0 low/high/critical, all one chain: minimatch 10.2.6 (GHSA-g3hv-75wg-m249, DoS via globparts amplification) reached through `eslint`, `@eslint/config-array` and `@typescript-eslint/*`. `npm audit --omit=dev` reports 0 vulnerabilities. Disposition: accepted. Dev tooling only, not in the published tarball, below the CI `--audit-level=high` gate; npm's only offered fix is a breaking downgrade to `@typescript-eslint/parser` 6.15.0, so wait for a patched upstream release.
 2. **`yaml` / `zod` changelogs:** nothing to skim. The locked versions are identical at v0.6.7 and now (`yaml` 2.9.1, `zod` 4.6.7); only the declared `zod` floor moved (`^4.6.6`, GHSA-mrhx-c7xc-m3w5), with no resolved-version change.
 3. **Published `files`:** `npm pack --dry-run` lists 93 files, all under `dist/` (including `.map` files), `src/`, plus `README.md`, `LICENSE` and `package.json`. No tests, fixtures or `.env`.
-4. **`release.yml` pins:** both actions are pinned to full SHAs (`actions/checkout` v7.0.1, `actions/setup-node` v7.0.0). The setup-node version is template-owned (code-workspace-config `templates/release-npm.yml` pins the same v7.0.0 SHA); any skew against v7.1.0 is fixed in the template, not here. Not edited.
+4. **`release.yml` pins:** both actions are pinned to full SHAs (`actions/checkout` v7.0.1, `actions/setup-node` v7.1.0).
 5. **`SECURITY.md` Scope:** re-read against current code; the five listed classes still match (spawn with argv arrays, item-text prompt handling, `$file:` containment in `src/config/loader.ts`, host-supplied storage adapters, `apiKey` option). No new threat-surface class found.
 
 ## 4. What CI already enforces
@@ -109,7 +111,6 @@ Tests run via `vitest`. Auto-merge eligibility on a minor update presumes those 
 ## 6. Pointers
 
 - **Vulnerability-reporting policy**: [`SECURITY.md`](../SECURITY.md) (top-level, public-facing).
-- Workspace maintenance posture origin: [plinkromatic#371](https://github.com/Kromatic-Innovation/plinkromatic/issues/371) and `plinkromatic/docs/security-posture.md`.
 - Contributing: [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 - Code of conduct: [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md).
 - Changelog: [`CHANGELOG.md`](../CHANGELOG.md).
