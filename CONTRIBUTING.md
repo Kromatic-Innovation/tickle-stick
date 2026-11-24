@@ -14,6 +14,14 @@ Thank you for your interest in contributing!
 All four of `build`, `test`, `lint`, and `typecheck` must pass locally before
 you open a pull request — CI runs the same matrix on Node 22 and 24.
 
+## Maintenance mode
+
+Tickle-stick is in maintenance mode (see
+[Project status](README.md#project-status)). Issues and pull requests are
+reviewed on a best-effort basis only, with no response-time commitment, and
+new features are unlikely to be accepted. If you want to take over the
+package, use the contact form at <https://tristankromer.com>.
+
 ## Reporting issues
 
 Please use [GitHub Issues](https://github.com/Kromatic-Innovation/tickle-stick/issues)

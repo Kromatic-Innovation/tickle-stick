@@ -41,7 +41,7 @@ export interface PipelineOptions {
   expensiveStageProvider?: ExpensiveStageProvider;
   /**
    * @deprecated Use {@link expensiveStageProvider}. Kept for 0.4.x
-   * compatibility; will be removed in 1.0.
+   * compatibility. The alias is still honored and is not scheduled for removal.
    */
   stageCallbacks?: Record<string, StageCallback>;
   /** Called after each stage completes. */
